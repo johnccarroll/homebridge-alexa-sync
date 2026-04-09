@@ -5,10 +5,31 @@
   "description": "Two-way bridge between Homebridge and Alexa with provider-based device support",
   "type": "module",
   "main": "dist/index.js",
-  "keywords": [
-    "homebridge-plugin"
+  "files": [
+    "dist/",
+    "config.schema.json",
+    "alexa-lambda/",
+    "LICENSE",
+    "README.md"
   ],
+  "keywords": [
+    "homebridge-plugin",
+    "alexa",
+    "tuya",
+    "smart-home",
+    "homekit",
+    "smart-home-bridge"
+  ],
+  "author": "homebridge-alexa-bridge contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/homebridge-alexa-bridge/homebridge-alexa-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/homebridge-alexa-bridge/homebridge-alexa-bridge/issues"
+  },
+  "homepage": "https://github.com/homebridge-alexa-bridge/homebridge-alexa-bridge#readme",
   "engines": {
     "node": "^20.18.0 || ^22.10.0 || ^24.0.0",
     "homebridge": ">=1.8.0"

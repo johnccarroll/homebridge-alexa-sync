@@ -45,6 +45,12 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     this.api.on('didFinishLaunching', () => {
       this.init().catch(err => this.log.error('Initialization failed:', err));
     });
+
+    this.api.on('shutdown', () => {
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      this.deviceManager?.dispose();
+      this.apiServer?.stop();
+    });
   }
 
   configureAccessory(accessory: PlatformAccessory): void {

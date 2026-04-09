@@ -17,7 +17,7 @@
         "properties": {
           "enabled": { "title": "Enable Alexa Skill API", "type": "boolean", "default": false },
           "apiPort": { "title": "API Server Port", "type": "number", "default": 9090 },
-          "apiKey": { "title": "API Key (shared secret with Lambda)", "type": "string" }
+          "apiKey": { "title": "API Key (shared secret with Lambda)", "type": "string", "x-schema-form": { "type": "password" } }
         }
       },
       "providers": {
@@ -29,7 +29,7 @@
             "type": "object",
             "properties": {
               "accessId": { "title": "Access ID", "type": "string" },
-              "accessKey": { "title": "Access Key", "type": "string" },
+              "accessKey": { "title": "Access Key", "type": "string", "x-schema-form": { "type": "password" } },
               "region": {
                 "title": "Region",
                 "type": "string",
@@ -61,6 +61,7 @@
                   { "title": "AU (amazon.com.au)", "enum": ["amazon.com.au"] }
                 ]
               },
+              "proxyHost": { "title": "Proxy Host (IP/hostname for browser login)", "type": "string", "default": "homebridge.local" },
               "proxyPort": { "title": "Auth Proxy Port", "type": "number", "default": 3456 },
               "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 60 },
               "cookieRefreshDays": { "title": "Cookie Refresh Interval (days)", "type": "number", "default": 4 },

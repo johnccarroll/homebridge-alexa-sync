@@ -115,31 +115,3 @@ export function alexaStateToDeviceState(state: AlexaDeviceState): DeviceState {
 
   return result;
 }
-
-export function deviceStateToAlexaAction(
-  state: Partial<DeviceState>,
-): Record<string, unknown> | null {
-  if (state.on !== undefined) {
-    return { action: state.on ? 'turnOn' : 'turnOff' };
-  }
-  if (state.brightness !== undefined) {
-    return { action: 'setBrightness', brightness: state.brightness };
-  }
-  if (state.hue !== undefined || state.saturation !== undefined) {
-    return {
-      action: 'setColor',
-      color: {
-        hue: state.hue ?? 0,
-        saturation: (state.saturation ?? 100) / 100,
-        brightness: 1.0,
-      },
-    };
-  }
-  if (state.colorTemperature !== undefined) {
-    return {
-      action: 'setColorTemperature',
-      colorTemperature: { value: state.colorTemperature },
-    };
-  }
-  return null;
-}

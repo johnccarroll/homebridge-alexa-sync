@@ -86,10 +86,19 @@ export class ApiServer {
     res.end(JSON.stringify(data));
   }
 
-  private readBody(req: IncomingMessage): Promise<string> {
+  private readBody(req: IncomingMessage, maxBytes = 1_048_576): Promise<string> {
     return new Promise((resolve, reject) => {
       let body = '';
-      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      let bytes = 0;
+      req.on('data', (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > maxBytes) {
+          req.destroy();
+          reject(new Error('Request body too large'));
+          return;
+        }
+        body += chunk.toString();
+      });
       req.on('end', () => resolve(body));
       req.on('error', reject);
     });

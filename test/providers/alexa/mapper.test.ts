@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   alexaDeviceToBridgeDevice,
   alexaStateToDeviceState,
-  deviceStateToAlexaAction,
 } from '../../../src/providers/alexa/mapper.js';
 
 describe('alexaDeviceToBridgeDevice', () => {
@@ -100,44 +99,3 @@ describe('alexaStateToDeviceState', () => {
   });
 });
 
-describe('deviceStateToAlexaAction', () => {
-  it('generates turnOn action', () => {
-    const action = deviceStateToAlexaAction({ on: true });
-    expect(action).toEqual({ action: 'turnOn' });
-  });
-
-  it('generates turnOff action', () => {
-    const action = deviceStateToAlexaAction({ on: false });
-    expect(action).toEqual({ action: 'turnOff' });
-  });
-
-  it('generates setBrightness action', () => {
-    const action = deviceStateToAlexaAction({ brightness: 50 });
-    expect(action).toEqual({ action: 'setBrightness', brightness: 50 });
-  });
-
-  it('generates setColor action with HSB', () => {
-    const action = deviceStateToAlexaAction({ hue: 120, saturation: 80 });
-    expect(action).toEqual({
-      action: 'setColor',
-      color: { hue: 120, saturation: 0.8, brightness: 1.0 },
-    });
-  });
-
-  it('generates setColorTemperature action', () => {
-    const action = deviceStateToAlexaAction({ colorTemperature: 4000 });
-    expect(action).toEqual({
-      action: 'setColorTemperature',
-      colorTemperature: { value: 4000 },
-    });
-  });
-
-  it('returns null for empty state', () => {
-    expect(deviceStateToAlexaAction({})).toBeNull();
-  });
-
-  it('prioritizes on/off over other properties', () => {
-    const action = deviceStateToAlexaAction({ on: true, brightness: 50 });
-    expect(action!.action).toBe('turnOn');
-  });
-});
