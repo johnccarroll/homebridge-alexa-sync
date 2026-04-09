@@ -58,7 +58,40 @@ export class TuyaApi {
 
   async getDevices(): Promise<TuyaDevice[]> {
     await this.ensureToken();
-    return this.request<TuyaDevice[]>('GET', `/v1.0/users/${this.uid}/devices`);
+
+    // v2.0 cloud API — works with Smart Home project permissions
+    // v1.0 user devices endpoint is restricted on many project types
+    interface CloudDevice {
+      id: string;
+      name: string;
+      customName?: string;
+      category: string;
+      isOnline: boolean;
+      productId: string;
+    }
+    const cloudDevices = await this.request<CloudDevice[]>(
+      'GET', '/v2.0/cloud/thing/device?page_size=20',
+    );
+
+    // v2.0 doesn't include status, so fetch each device's status
+    const devices: TuyaDevice[] = [];
+    for (const d of cloudDevices) {
+      let status: Array<{ code: string; value: boolean | number | string }> = [];
+      try {
+        status = await this.getDeviceStatus(d.id);
+      } catch {
+        // Device may be offline or inaccessible
+      }
+      devices.push({
+        id: d.id,
+        name: d.customName || d.name,
+        category: d.category,
+        online: d.isOnline,
+        product_id: d.productId,
+        status,
+      });
+    }
+    return devices;
   }
 
   async getDeviceStatus(deviceId: string): Promise<Array<{ code: string; value: boolean | number | string }>> {

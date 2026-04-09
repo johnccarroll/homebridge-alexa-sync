@@ -89,28 +89,40 @@ describe('TuyaApi', () => {
     });
 
     it('returns device list', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({
-          success: true,
-          result: [{
-            id: 'dev_001',
-            name: 'Kitchen Light',
-            category: 'dj',
-            online: true,
-            product_id: 'prod_1',
-            status: [
+      // v2.0 returns flat array with isOnline/productId/customName fields,
+      // then status is fetched per device via v1.0 endpoint
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            result: [{
+              id: 'dev_001',
+              name: 'Smart Light',
+              customName: 'Kitchen Light',
+              category: 'dj',
+              isOnline: true,
+              productId: 'prod_1',
+            }],
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            result: [
               { code: 'switch_led', value: true },
               { code: 'bright_value_v2', value: 500 },
             ],
-          }],
-        }),
-      }));
+          }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
 
       const devices = await api.getDevices();
       expect(devices).toHaveLength(1);
       expect(devices[0].id).toBe('dev_001');
       expect(devices[0].name).toBe('Kitchen Light');
+      expect(devices[0].status).toHaveLength(2);
     });
   });
 
