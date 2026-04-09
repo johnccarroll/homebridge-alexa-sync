@@ -202,7 +202,11 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     for (const [uuid, accessory] of this.cachedAccessories) {
       if (!activeUUIDs.has(uuid)) {
         this.log.info(`Removing stale accessory: ${accessory.displayName}`);
-        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        try {
+          this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        } catch {
+          // Accessory may already be removed from bridge
+        }
         this.cachedAccessories.delete(uuid);
       }
     }
