@@ -17,7 +17,9 @@
         "properties": {
           "enabled": { "title": "Enable Alexa Skill API", "type": "boolean", "default": false },
           "apiPort": { "title": "API Server Port", "type": "number", "default": 9090 },
-          "apiKey": { "title": "API Key (shared secret with Lambda)", "type": "string", "x-schema-form": { "type": "password" } }
+          "apiKey": { "title": "API Key (shared secret with Lambda)", "type": "string", "x-schema-form": { "type": "password" } },
+          "lwaClientId": { "title": "LWA Client ID (for proactive reporting)", "type": "string" },
+          "lwaClientSecret": { "title": "LWA Client Secret", "type": "string", "x-schema-form": { "type": "password" } }
         }
       },
       "providers": {

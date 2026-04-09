@@ -1,10 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import type { DeviceManager } from './device-manager.js';
 import { handleAlexaDirective } from './alexa-skill/handler.js';
+import type { AlexaStateReporter } from './alexa-skill/state-reporter.js';
 
 interface ApiServerConfig {
   port: number;
   apiKey: string;
+  stateReporter?: AlexaStateReporter;
 }
 
 export class ApiServer {
@@ -81,7 +83,7 @@ export class ApiServer {
           this.json(res, 400, { error: 'Invalid Alexa directive' });
           return;
         }
-        const response = await handleAlexaDirective(event, this.dm);
+        const response = await handleAlexaDirective(event, this.dm, this.config.stateReporter);
         this.json(res, 200, response);
       } else {
         this.json(res, 404, { error: 'Not found' });

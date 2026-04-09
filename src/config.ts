@@ -26,6 +26,8 @@ export interface AlexaSkillConfig {
   enabled?: boolean;
   apiPort?: number;
   apiKey?: string;
+  lwaClientId?: string;
+  lwaClientSecret?: string;
 }
 
 export interface PluginConfig {

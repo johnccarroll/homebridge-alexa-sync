@@ -74,9 +74,48 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     // Start API server for Alexa Smart Home Skill
     if (pluginConfig.alexaSkill?.enabled && pluginConfig.alexaSkill?.apiKey) {
       const port = pluginConfig.alexaSkill.apiPort ?? 9090;
+
+      // Set up proactive state reporter if LWA credentials are available
+      let stateReporter: import('./alexa-skill/state-reporter.js').AlexaStateReporter | undefined;
+      if (pluginConfig.alexaSkill.lwaClientId && pluginConfig.alexaSkill.lwaClientSecret) {
+        const { AlexaStateReporter: Reporter } = await import('./alexa-skill/state-reporter.js');
+        stateReporter = new Reporter(
+          pluginConfig.alexaSkill.lwaClientId,
+          pluginConfig.alexaSkill.lwaClientSecret,
+        );
+
+        // Restore tokens from persistence
+        const tokenPath = `${this.api.user.storagePath()}/.alexa-bridge-lwa-tokens.json`;
+        try {
+          const data = readFileSync(tokenPath, 'utf8');
+          stateReporter.restoreTokens(JSON.parse(data));
+          this.log.info('Alexa proactive state reporting enabled');
+        } catch {
+          this.log.info('Alexa proactive reporting: waiting for AcceptGrant (re-enable skill in Alexa app)');
+        }
+
+        // Persist tokens when they change
+        stateReporter.onPersist((tokens) => {
+          try {
+            writeFileSync(tokenPath, JSON.stringify(tokens));
+          } catch { /* ignore */ }
+        });
+
+        // Wire up state change notifications
+        this.deviceManager.onStateChange(async (deviceId, state) => {
+          if (!stateReporter?.isEnabled) return;
+          try {
+            await stateReporter.sendChangeReport(deviceId, state, state);
+          } catch (err) {
+            this.log.debug('ChangeReport failed:', err);
+          }
+        });
+      }
+
       this.apiServer = new ApiServer(this.deviceManager, {
         port,
         apiKey: pluginConfig.alexaSkill.apiKey,
+        stateReporter,
       });
       await this.apiServer.start();
       this.log.warn('API server bound to all interfaces (0.0.0.0). Ensure your network is trusted.');

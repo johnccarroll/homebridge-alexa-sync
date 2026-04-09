@@ -2,10 +2,36 @@ import type { DeviceManager } from '../device-manager.js';
 import { buildDiscoveryResponse } from './discovery.js';
 import { extractStateFromDirective, buildControlResponse, buildStateReportResponse } from './control.js';
 import { randomUUID } from 'node:crypto';
+import type { AlexaStateReporter } from './state-reporter.js';
 
-export async function handleAlexaDirective(event: any, dm: DeviceManager): Promise<any> {
+export async function handleAlexaDirective(event: any, dm: DeviceManager, stateReporter?: AlexaStateReporter): Promise<any> {
   const directive = event.directive;
   const { namespace, name, correlationToken } = directive.header;
+
+  // AcceptGrant — exchange auth code for LWA tokens
+  if (namespace === 'Alexa.Authorization' && name === 'AcceptGrant') {
+    if (!stateReporter) {
+      return buildErrorResponse('ACCEPT_GRANT_FAILED', 'State reporter not configured');
+    }
+    try {
+      const code = directive.payload?.grant?.code;
+      if (!code) throw new Error('Missing grant code');
+      await stateReporter.handleAcceptGrant(code);
+      return {
+        event: {
+          header: {
+            namespace: 'Alexa.Authorization',
+            name: 'AcceptGrant.Response',
+            payloadVersion: '3',
+            messageId: randomUUID(),
+          },
+          payload: {},
+        },
+      };
+    } catch (err) {
+      return buildErrorResponse('ACCEPT_GRANT_FAILED', (err as Error).message);
+    }
+  }
 
   if (namespace === 'Alexa.Discovery' && name === 'Discover') {
     const devices = dm.getAllDevices();
