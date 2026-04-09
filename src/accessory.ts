@@ -47,6 +47,10 @@ export function configureAccessory(
   if (device.type === 'light') {
     configureLightAccessory(accessory, device, hap, getState, setState);
   }
+
+  if (device.type === 'thermostat') {
+    configureThermostatAccessory(accessory, device, hap, getState, setState);
+  }
 }
 
 function configureLightAccessory(
@@ -127,34 +131,118 @@ function configureLightAccessory(
   }
 }
 
+function configureThermostatAccessory(
+  accessory: PlatformAccessory,
+  device: BridgeDevice,
+  hap: HapTypes,
+  getState: GetState,
+  setState: SetState,
+): void {
+  const service = accessory.getService(hap.Service.Thermostat)
+    || accessory.addService(hap.Service.Thermostat);
+
+  const safeGetState = (id: string) => withTimeout(getState(id), GET_TIMEOUT_MS, {} as DeviceState);
+
+  // Current Temperature (read-only)
+  service.getCharacteristic(hap.Characteristic.CurrentTemperature)
+    .onGet(async (): Promise<CharacteristicValue> => {
+      const state = await safeGetState(device.id);
+      return state.temperature ?? 20;
+    });
+
+  // Target Temperature
+  service.getCharacteristic(hap.Characteristic.TargetTemperature)
+    .setProps({ minValue: 10, maxValue: 37, minStep: 0.5 })
+    .onGet(async (): Promise<CharacteristicValue> => {
+      const state = await safeGetState(device.id);
+      return state.targetTemperature ?? 20;
+    })
+    .onSet(async (value: CharacteristicValue) => {
+      await setState(device.id, { targetTemperature: value as number });
+    });
+
+  // Current Heating/Cooling State (read-only, what it's doing now)
+  service.getCharacteristic(hap.Characteristic.CurrentHeatingCoolingState)
+    .onGet(async (): Promise<CharacteristicValue> => {
+      const state = await safeGetState(device.id);
+      switch (state.thermostatMode) {
+        case 'heat': return 1; // HEAT
+        case 'cool': return 2; // COOL
+        default: return 0;     // OFF
+      }
+    });
+
+  // Target Heating/Cooling State
+  service.getCharacteristic(hap.Characteristic.TargetHeatingCoolingState)
+    .onGet(async (): Promise<CharacteristicValue> => {
+      const state = await safeGetState(device.id);
+      switch (state.thermostatMode) {
+        case 'heat': return 1;
+        case 'cool': return 2;
+        case 'auto': return 3;
+        default: return 0;
+      }
+    })
+    .onSet(async (value: CharacteristicValue) => {
+      const modes = ['off', 'heat', 'cool', 'auto'];
+      await setState(device.id, { thermostatMode: modes[value as number] ?? 'off' });
+    });
+
+  // Temperature Display Units (read-only, based on device config)
+  service.getCharacteristic(hap.Characteristic.TemperatureDisplayUnits)
+    .onGet(async (): Promise<CharacteristicValue> => {
+      // 0 = Celsius, 1 = Fahrenheit
+      const tempCap = device.capabilities.find(c => c.type === 'temperature');
+      return tempCap && 'unit' in tempCap && tempCap.unit === 'fahrenheit' ? 1 : 0;
+    });
+}
+
 export function updateAccessoryState(
   accessory: PlatformAccessory,
   device: BridgeDevice,
   state: DeviceState,
   hap: HapTypes,
 ): void {
-  if (device.type !== 'light') return;
+  if (device.type === 'light') {
+    const service = accessory.getService(hap.Service.Lightbulb);
+    if (!service) return;
 
-  const service = accessory.getService(hap.Service.Lightbulb);
-  if (!service) return;
+    const caps = new Set(device.capabilities.map(c => c.type));
 
-  const caps = new Set(device.capabilities.map(c => c.type));
-
-  if (caps.has('on-off') && state.on !== undefined) {
-    service.updateCharacteristic(hap.Characteristic.On, state.on);
-  }
-  if (caps.has('brightness') && state.brightness !== undefined) {
-    service.updateCharacteristic(hap.Characteristic.Brightness, state.brightness);
-  }
-  if (caps.has('color')) {
-    if (state.hue !== undefined) {
-      service.updateCharacteristic(hap.Characteristic.Hue, state.hue);
+    if (caps.has('on-off') && state.on !== undefined) {
+      service.updateCharacteristic(hap.Characteristic.On, state.on);
     }
-    if (state.saturation !== undefined) {
-      service.updateCharacteristic(hap.Characteristic.Saturation, state.saturation);
+    if (caps.has('brightness') && state.brightness !== undefined) {
+      service.updateCharacteristic(hap.Characteristic.Brightness, state.brightness);
+    }
+    if (caps.has('color')) {
+      if (state.hue !== undefined) {
+        service.updateCharacteristic(hap.Characteristic.Hue, state.hue);
+      }
+      if (state.saturation !== undefined) {
+        service.updateCharacteristic(hap.Characteristic.Saturation, state.saturation);
+      }
+    }
+    if (caps.has('color-temperature') && state.colorTemperature !== undefined) {
+      service.updateCharacteristic(hap.Characteristic.ColorTemperature, kelvinToMired(state.colorTemperature));
     }
   }
-  if (caps.has('color-temperature') && state.colorTemperature !== undefined) {
-    service.updateCharacteristic(hap.Characteristic.ColorTemperature, kelvinToMired(state.colorTemperature));
+
+  if (device.type === 'thermostat') {
+    const service = accessory.getService(hap.Service.Thermostat);
+    if (!service) return;
+
+    if (state.temperature !== undefined) {
+      service.updateCharacteristic(hap.Characteristic.CurrentTemperature, state.temperature);
+    }
+    if (state.targetTemperature !== undefined) {
+      service.updateCharacteristic(hap.Characteristic.TargetTemperature, state.targetTemperature);
+    }
+    if (state.thermostatMode !== undefined) {
+      const targetMap: Record<string, number> = { off: 0, heat: 1, cool: 2, auto: 3 };
+      const currentMap: Record<string, number> = { off: 0, heat: 1, cool: 2, auto: 0 };
+      service.updateCharacteristic(hap.Characteristic.TargetHeatingCoolingState, targetMap[state.thermostatMode] ?? 0);
+      service.updateCharacteristic(hap.Characteristic.CurrentHeatingCoolingState, currentMap[state.thermostatMode] ?? 0);
+    }
   }
 }

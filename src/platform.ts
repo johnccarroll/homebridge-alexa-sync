@@ -15,6 +15,7 @@ import { DeviceManager } from './device-manager.js';
 import type { DeviceProvider } from './providers/provider.js';
 import { TuyaProvider } from './providers/tuya/index.js';
 import { AlexaProvider } from './providers/alexa/index.js';
+import { ResideoProvider } from './providers/resideo/index.js';
 import { AlexaClient } from './providers/alexa/client.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { configureAccessory, updateAccessoryState } from './accessory.js';
@@ -150,6 +151,20 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
         alexaClient.init().catch(() => {
           // Expected — proxy is running, waiting for login
         });
+      }
+    }
+
+    if (config.providers?.resideo) {
+      this.log.info('Initializing Resideo provider');
+      try {
+        const resideoProvider = new ResideoProvider({
+          consumerKey: config.providers.resideo.consumerKey,
+          consumerSecret: config.providers.resideo.consumerSecret,
+          refreshToken: config.providers.resideo.refreshToken,
+        });
+        providers.push(resideoProvider);
+      } catch (err) {
+        this.log.error('Resideo initialization failed:', err);
       }
     }
 

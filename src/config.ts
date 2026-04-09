@@ -15,6 +15,13 @@ export interface AlexaConfig {
   deviceTypes?: string[];
 }
 
+export interface ResideoConfig {
+  consumerKey: string;
+  consumerSecret: string;
+  refreshToken: string;
+  pollInterval?: number;
+}
+
 export interface AlexaSkillConfig {
   enabled?: boolean;
   apiPort?: number;
@@ -26,6 +33,7 @@ export interface PluginConfig {
   providers?: {
     tuya?: TuyaConfig;
     alexa?: AlexaConfig;
+    resideo?: ResideoConfig;
   };
   alexaSkill?: AlexaSkillConfig;
 }

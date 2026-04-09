@@ -72,6 +72,17 @@
                 "default": ["LIGHT", "SWITCH", "SMARTPLUG"]
               }
             }
+          },
+          "resideo": {
+            "title": "Resideo / Honeywell Home",
+            "type": "object",
+            "properties": {
+              "consumerKey": { "title": "Consumer Key", "type": "string" },
+              "consumerSecret": { "title": "Consumer Secret", "type": "string", "x-schema-form": { "type": "password" } },
+              "refreshToken": { "title": "Refresh Token", "type": "string", "x-schema-form": { "type": "password" } },
+              "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 120 }
+            },
+            "required": ["consumerKey", "consumerSecret", "refreshToken"]
           }
         }
       }
