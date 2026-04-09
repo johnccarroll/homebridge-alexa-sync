@@ -20,16 +20,16 @@
     "homekit",
     "smart-home-bridge"
   ],
-  "author": "homebridge-alexa-bridge contributors",
+  "author": "John Carroll (@johnccarroll)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/homebridge-alexa-bridge/homebridge-alexa-bridge.git"
+    "url": "https://github.com/johnccarroll/homebridge-alexa-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/homebridge-alexa-bridge/homebridge-alexa-bridge/issues"
+    "url": "https://github.com/johnccarroll/homebridge-alexa-bridge/issues"
   },
-  "homepage": "https://github.com/homebridge-alexa-bridge/homebridge-alexa-bridge#readme",
+  "homepage": "https://github.com/johnccarroll/homebridge-alexa-bridge#readme",
   "engines": {
     "node": "^20.18.0 || ^22.10.0 || ^24.0.0",
     "homebridge": ">=1.8.0"
