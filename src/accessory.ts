@@ -96,15 +96,17 @@ function configureLightAccessory(
   if (caps.has('color-temperature')) {
     const ctCap = device.capabilities.find(c => c.type === 'color-temperature');
     const range = ctCap && 'range' in ctCap ? ctCap.range : [2700, 6500];
+    const minMired = kelvinToMired(range[1]); // high kelvin = low mired
+    const maxMired = kelvinToMired(range[0]); // low kelvin = high mired
 
+    const defaultMired = kelvinToMired(4000); // ~250 mired, safe mid-range default
     service.getCharacteristic(hap.Characteristic.ColorTemperature)
-      .setProps({
-        minValue: kelvinToMired(range[1]),
-        maxValue: kelvinToMired(range[0]),
-      })
+      .updateValue(Math.max(minMired, Math.min(maxMired, defaultMired)))
+      .setProps({ minValue: minMired, maxValue: maxMired })
       .onGet(async (): Promise<CharacteristicValue> => {
         const state = await getState(device.id);
-        return kelvinToMired(state.colorTemperature ?? 4000);
+        const mired = kelvinToMired(state.colorTemperature ?? 4000);
+        return Math.max(minMired, Math.min(maxMired, mired)); // clamp to valid range
       })
       .onSet(async (value: CharacteristicValue) => {
         await setState(device.id, { colorTemperature: miredToKelvin(value as number) });

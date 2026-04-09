@@ -143,28 +143,37 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     const activeUUIDs = new Set<string>();
 
     for (const device of devices) {
-      const uuid = this.api.hap.uuid.generate(device.id);
-      activeUUIDs.add(uuid);
+      try {
+        const uuid = this.api.hap.uuid.generate(device.id);
+        activeUUIDs.add(uuid);
 
-      let accessory = this.cachedAccessories.get(uuid);
-      const isNew = !accessory;
+        let accessory = this.cachedAccessories.get(uuid);
+        const isNew = !accessory;
 
-      if (!accessory) {
-        accessory = new this.api.platformAccessory(device.name, uuid);
-      }
+        if (!accessory) {
+          accessory = new this.api.platformAccessory(device.name, uuid);
+        }
 
-      configureAccessory(
-        accessory,
-        device,
-        { Service: this.Service, Characteristic: this.Characteristic },
-        (id) => this.deviceManager!.getState(id),
-        (id, state) => this.deviceManager!.setState(id, state),
-      );
+        configureAccessory(
+          accessory,
+          device,
+          { Service: this.Service, Characteristic: this.Characteristic },
+          (id) => this.deviceManager!.getState(id),
+          (id, state) => this.deviceManager!.setState(id, state),
+        );
 
-      if (isNew) {
-        this.log.info(`Adding new accessory: ${device.name}`);
-        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-        this.cachedAccessories.set(uuid, accessory);
+        if (isNew) {
+          this.log.info(`Adding new accessory: ${device.name}`);
+          try {
+            this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+          } catch {
+            // Homebridge 2.x alpha auto-bridges accessories — registration may fail
+            // but the accessory is still functional
+          }
+          this.cachedAccessories.set(uuid, accessory);
+        }
+      } catch (err) {
+        this.log.error(`Failed to register ${device.name}:`, err);
       }
     }
 
