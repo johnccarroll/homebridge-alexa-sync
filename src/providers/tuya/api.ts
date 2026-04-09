@@ -59,8 +59,6 @@ export class TuyaApi {
   async getDevices(): Promise<TuyaDevice[]> {
     await this.ensureToken();
 
-    // v2.0 cloud API — works with Smart Home project permissions
-    // v1.0 user devices endpoint is restricted on many project types
     interface CloudDevice {
       id: string;
       name: string;
@@ -69,27 +67,45 @@ export class TuyaApi {
       isOnline: boolean;
       productId: string;
     }
-    const cloudDevices = await this.request<CloudDevice[]>(
-      'GET', '/v2.0/cloud/thing/device?page_size=20',
-    );
 
-    // v2.0 doesn't include status, so fetch each device's status
+    const allCloudDevices: CloudDevice[] = [];
+    let lastId: string | undefined;
+
+    while (true) {
+      const path = lastId
+        ? `/v2.0/cloud/thing/device?page_size=20&last_id=${lastId}`
+        : '/v2.0/cloud/thing/device?page_size=20';
+      const page = await this.request<CloudDevice[]>('GET', path);
+      if (!page || page.length === 0) break;
+      allCloudDevices.push(...page);
+      if (page.length < 20) break;
+      lastId = page[page.length - 1].id;
+    }
+
+    // Fetch status in parallel batches of 5
+    const CONCURRENCY = 5;
     const devices: TuyaDevice[] = [];
-    for (const d of cloudDevices) {
-      let status: Array<{ code: string; value: boolean | number | string }> = [];
-      try {
-        status = await this.getDeviceStatus(d.id);
-      } catch {
-        // Device may be offline or inaccessible
+    for (let i = 0; i < allCloudDevices.length; i += CONCURRENCY) {
+      const batch = allCloudDevices.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(async (d) => {
+          let status: Array<{ code: string; value: boolean | number | string }> = [];
+          try {
+            status = await this.getDeviceStatus(d.id);
+          } catch { /* offline */ }
+          return {
+            id: d.id,
+            name: d.customName || d.name,
+            category: d.category,
+            online: d.isOnline,
+            product_id: d.productId,
+            status,
+          };
+        }),
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') devices.push(r.value);
       }
-      devices.push({
-        id: d.id,
-        name: d.customName || d.name,
-        category: d.category,
-        online: d.isOnline,
-        product_id: d.productId,
-        status,
-      });
     }
     return devices;
   }

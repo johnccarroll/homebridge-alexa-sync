@@ -10,8 +10,8 @@ export interface AlexaDevice {
   friendlyName: string;
   displayCategories: { primary: { value: string } };
   features: AlexaDeviceFeature[];
-  manufacturer?: string;
-  model?: string;
+  manufacturer?: string | { value?: { text?: string } };
+  model?: string | { value?: { text?: string } };
   legacyAppliance?: { applianceId: string };
 }
 
@@ -27,6 +27,15 @@ const CATEGORY_MAP: Record<string, DeviceType> = {
   FAN: 'fan',
   THERMOSTAT: 'thermostat',
 };
+
+function extractTextField(field: unknown): string | undefined {
+  if (typeof field === 'string') return field;
+  if (field && typeof field === 'object' && 'value' in field) {
+    const val = (field as { value?: { text?: string } }).value;
+    return val?.text;
+  }
+  return undefined;
+}
 
 const DEFAULT_DEVICE_TYPES = ['LIGHT', 'SWITCH', 'SMARTPLUG', 'SMARTLOCK', 'FAN', 'THERMOSTAT'];
 
@@ -77,8 +86,8 @@ export function alexaDeviceToBridgeDevice(
     type: deviceType,
     provider: 'alexa',
     capabilities,
-    manufacturer: device.manufacturer,
-    model: device.model,
+    manufacturer: extractTextField(device.manufacturer),
+    model: extractTextField(device.model),
   };
 }
 

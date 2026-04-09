@@ -70,7 +70,17 @@ export class ApiServer {
         this.json(res, 200, { ok: true });
       } else if (req.method === 'POST' && path === '/alexa/directive') {
         const body = await this.readBody(req);
-        const event = JSON.parse(body);
+        let event: any;
+        try {
+          event = JSON.parse(body);
+        } catch {
+          this.json(res, 400, { error: 'Invalid JSON' });
+          return;
+        }
+        if (!event?.directive?.header?.namespace) {
+          this.json(res, 400, { error: 'Invalid Alexa directive' });
+          return;
+        }
         const response = await handleAlexaDirective(event, this.dm);
         this.json(res, 200, response);
       } else {

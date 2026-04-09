@@ -13,6 +13,16 @@ const DEVICE_TYPE_TO_CATEGORY: Record<DeviceType, string> = {
 function buildCapabilities(device: BridgeDevice): object[] {
   const caps: object[] = [];
   caps.push({ type: 'AlexaInterface', interface: 'Alexa', version: '3' });
+  caps.push({
+    type: 'AlexaInterface',
+    interface: 'Alexa.EndpointHealth',
+    version: '3',
+    properties: {
+      supported: [{ name: 'connectivity' }],
+      proactivelyReported: false,
+      retrievable: true,
+    },
+  });
 
   for (const cap of device.capabilities) {
     switch (cap.type) {

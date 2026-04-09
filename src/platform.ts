@@ -78,6 +78,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
         apiKey: pluginConfig.alexaSkill.apiKey,
       });
       await this.apiServer.start();
+      this.log.warn('API server bound to all interfaces (0.0.0.0). Ensure your network is trusted.');
       this.log.info(`Alexa Skill API server running on port ${port}`);
     }
   }
@@ -188,9 +189,8 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
           this.log.info(`Adding new accessory: ${device.name}`);
           try {
             this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-          } catch {
-            // Homebridge 2.x alpha auto-bridges accessories — registration may fail
-            // but the accessory is still functional
+          } catch (err) {
+            this.log.warn(`Registration warning for ${device.name}:`, err);
           }
           this.cachedAccessories.set(uuid, accessory);
         }
@@ -220,22 +220,24 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     this.pollTimer = setInterval(async () => {
       if (!this.deviceManager) return;
 
-      for (const device of this.deviceManager.getAllDevices()) {
-        try {
-          this.deviceManager.invalidateCache(device.id);
-          const state = await this.deviceManager.getState(device.id);
+      const devices = this.deviceManager.getAllDevices();
+      const results = await Promise.allSettled(
+        devices.map(async (device) => {
+          this.deviceManager!.invalidateCache(device.id);
+          const state = await this.deviceManager!.getState(device.id);
           const uuid = this.api.hap.uuid.generate(device.id);
           const accessory = this.cachedAccessories.get(uuid);
           if (accessory) {
-            updateAccessoryState(
-              accessory,
-              device,
-              state,
-              { Service: this.Service, Characteristic: this.Characteristic },
-            );
+            updateAccessoryState(accessory, device, state, {
+              Service: this.Service,
+              Characteristic: this.Characteristic,
+            });
           }
-        } catch (err) {
-          this.log.warn(`Failed to poll ${device.name}:`, err);
+        }),
+      );
+      for (const r of results) {
+        if (r.status === 'rejected') {
+          this.log.warn('Poll failed:', r.reason);
         }
       }
     }, interval);

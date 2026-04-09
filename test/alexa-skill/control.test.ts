@@ -72,6 +72,9 @@ describe('buildStateReportResponse', () => {
     const response = buildStateReportResponse('dev_001', 'corr-456', state);
     expect(response.event.header.name).toBe('StateReport');
     expect(response.event.endpoint.endpointId).toBe('dev_001');
-    expect(response.context.properties[0].value).toBe('OFF');
+    const connectivity = response.context.properties.find((p: any) => p.namespace === 'Alexa.EndpointHealth');
+    expect(connectivity.value).toEqual({ value: 'OK' });
+    const power = response.context.properties.find((p: any) => p.namespace === 'Alexa.PowerController');
+    expect(power.value).toBe('OFF');
   });
 });

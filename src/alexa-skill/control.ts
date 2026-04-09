@@ -24,6 +24,14 @@ function stateToProperties(state: DeviceState): object[] {
   const now = new Date().toISOString();
   const props: object[] = [];
 
+  props.push({
+    namespace: 'Alexa.EndpointHealth',
+    name: 'connectivity',
+    value: { value: 'OK' },
+    timeOfSample: now,
+    uncertaintyInMilliseconds: 0,
+  });
+
   if (state.on !== undefined) {
     props.push({
       namespace: 'Alexa.PowerController', name: 'powerState',

@@ -149,11 +149,16 @@ export class AlexaClient {
 
   async queryDeviceState(applianceId: string): Promise<AlexaDeviceState> {
     return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error('Alexa state query timed out'));
+      }, 10_000);
+
       this.remote.querySmarthomeDevices(
         [applianceId],
         'APPLIANCE',
         15000,
         (err: Error | null, result: any) => {
+          clearTimeout(timer);
           if (err) return reject(new Error(`State query failed: ${err.message}`));
 
           const state: AlexaDeviceState = {};
