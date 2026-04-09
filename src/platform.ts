@@ -88,6 +88,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
       this.log.info('Initializing Alexa provider');
       const alexaClient = new AlexaClient({
         amazonDomain: config.providers.alexa.amazonDomain ?? 'amazon.com',
+        proxyHost: config.providers.alexa.proxyHost ?? 'homebridge.local',
         proxyPort: config.providers.alexa.proxyPort ?? 3456,
         cookieRefreshDays: config.providers.alexa.cookieRefreshDays ?? 4,
         persistPath: this.api.user.storagePath(),
@@ -95,38 +96,53 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
       });
 
       const cookiePath = `${this.api.user.storagePath()}/.alexa-bridge-cookie.json`;
+      const amazonDomain = config.providers.alexa.amazonDomain ?? 'amazon.com';
       let storedCookie: any;
       try {
         const data = readFileSync(cookiePath, 'utf8');
         storedCookie = JSON.parse(data);
+        // Ensure amazonPage is set so alexa-remote2 uses the right domain
+        storedCookie.amazonPage = amazonDomain;
       } catch {
-        this.log.info('No stored Alexa cookie — proxy login required at http://127.0.0.1:' + (config.providers.alexa.proxyPort ?? 3456));
+        // No stored cookie
       }
 
-      try {
-        await alexaClient.init(storedCookie);
-        this.log.info('Alexa authenticated');
-
-        alexaClient.onCookieRefresh((cookie) => {
-          try {
-            writeFileSync(cookiePath, JSON.stringify(cookie));
-            this.log.info('Alexa cookie refreshed and saved');
-          } catch (err) {
-            this.log.warn('Failed to save Alexa cookie:', err);
-          }
-        });
-
-        const cookieData = alexaClient.getCookieData();
-        if (cookieData) {
-          try {
-            writeFileSync(cookiePath, JSON.stringify(cookieData));
-          } catch { /* ignore */ }
+      // Always listen for cookie events to persist them
+      alexaClient.onCookieRefresh((cookie) => {
+        try {
+          const toSave = { ...cookie, amazonPage: amazonDomain };
+          writeFileSync(cookiePath, JSON.stringify(toSave));
+          this.log.info('Alexa cookie saved. Restart Homebridge to discover Alexa devices.');
+        } catch (err) {
+          this.log.warn('Failed to save Alexa cookie:', err);
         }
+      });
 
-        providers.push(new AlexaProvider(alexaClient, config.providers.alexa));
-      } catch (err) {
-        this.log.error('Alexa initialization failed:', err);
-        this.log.warn('Alexa devices will not be available. Check proxy login.');
+      if (storedCookie) {
+        // Have a cookie — try to init and connect
+        try {
+          await alexaClient.init(storedCookie);
+          this.log.info('Alexa authenticated');
+
+          const cookieData = alexaClient.getCookieData();
+          if (cookieData) {
+            try { writeFileSync(cookiePath, JSON.stringify(cookieData)); } catch { /* ignore */ }
+          }
+
+          providers.push(new AlexaProvider(alexaClient, config.providers.alexa));
+        } catch (err) {
+          this.log.error('Alexa auth failed:', err);
+          this.log.warn('Alexa devices unavailable. Delete cookie and re-authenticate.');
+        }
+      } else {
+        // No cookie — start proxy in background for browser login
+        const proxyHost = config.providers.alexa.proxyHost ?? 'homebridge.local';
+        const proxyPort = config.providers.alexa.proxyPort ?? 3456;
+        this.log.info(`No Alexa cookie. Open http://${proxyHost}:${proxyPort}/ in your browser to log in.`);
+        // Fire and forget — init will wait for cookie event, cookie handler saves it
+        alexaClient.init().catch(() => {
+          // Expected — proxy is running, waiting for login
+        });
       }
     }
 

@@ -8,6 +8,7 @@ export interface TuyaConfig {
 
 export interface AlexaConfig {
   amazonDomain?: string;
+  proxyHost?: string;
   proxyPort?: number;
   pollInterval?: number;
   cookieRefreshDays?: number;

@@ -28,6 +28,7 @@ interface AlexaRemoteInstance {
 
 export interface AlexaClientConfig {
   amazonDomain: string;
+  proxyHost?: string;
   proxyPort: number;
   cookieRefreshDays: number;
   persistPath: string;
@@ -65,15 +66,26 @@ export class AlexaClient {
     const serviceHost = ALEXA_SERVICE_HOSTS[this.config.amazonDomain] ?? 'pitangui.amazon.com';
 
     return new Promise<void>((resolve, reject) => {
+      // Listen for cookie event — fires when user completes proxy login
+      this.remote.on('cookie', (cookie: string, csrf: string, macDms: any) => {
+        this.initialized = true;
+        resolve();
+      });
+
+      const hasCookie = !!(storedCookie?.localCookie ?? storedCookie?.cookie);
+
       this.remote.init(
         {
           acceptLanguage: 'en-US',
           amazonPage: this.config.amazonDomain,
+          baseAmazonPage: this.config.amazonDomain,
+          amazonPageProxyLanguage: 'en_US',
           alexaServiceHost: serviceHost,
           cookie: storedCookie?.localCookie ?? storedCookie?.cookie,
           formerRegistrationData: storedCookie as any,
           macDms: storedCookie?.macDms as any,
-          proxyOwnIp: '127.0.0.1',
+          proxyOnly: !hasCookie,
+          proxyOwnIp: this.config.proxyHost ?? '127.0.0.1',
           proxyPort: this.config.proxyPort,
           cookieRefreshInterval: this.config.cookieRefreshDays * ONE_DAY_MS,
           usePushConnection: false,
@@ -82,7 +94,14 @@ export class AlexaClient {
         },
         (err: Error | null) => {
           if (err) {
-            reject(new Error(`Alexa auth failed: ${err.message}`));
+            const msg = err.message ?? '';
+            // "Please open http://..." means the proxy is running and waiting for login
+            // This is not a real error — don't reject, wait for the cookie event
+            if (msg.includes('Please open')) {
+              // Proxy is running, waiting for browser login — don't reject
+              return;
+            }
+            reject(new Error(`Alexa auth failed: ${msg}`));
           } else {
             this.initialized = true;
             resolve();
@@ -98,8 +117,12 @@ export class AlexaClient {
   }
 
   onCookieRefresh(callback: (cookie: CookieData) => void): void {
-    this.remote.on('cookie', (cookie: string, csrf: string, macDms: any) => {
-      callback({ cookie, csrf, macDms, localCookie: cookie });
+    this.remote.on('cookie', () => {
+      // Save the full cookieData from the remote — includes deviceSerial and other
+      // fields needed for cookie refresh on next startup
+      if (this.remote.cookieData) {
+        callback(this.remote.cookieData as CookieData);
+      }
     });
   }
 
