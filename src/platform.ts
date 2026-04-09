@@ -14,6 +14,9 @@ import { validateConfig } from './config.js';
 import { DeviceManager } from './device-manager.js';
 import type { DeviceProvider } from './providers/provider.js';
 import { TuyaProvider } from './providers/tuya/index.js';
+import { AlexaProvider } from './providers/alexa/index.js';
+import { AlexaClient } from './providers/alexa/client.js';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { configureAccessory, updateAccessoryState } from './accessory.js';
 
 export class AlexaBridgePlatform implements DynamicPlatformPlugin {
@@ -48,7 +51,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
 
   private async init(): Promise<void> {
     const pluginConfig = this.config as unknown as PluginConfig;
-    const providers = this.createProviders(pluginConfig);
+    const providers = await this.createProviders(pluginConfig);
 
     if (providers.length === 0) {
       this.log.warn('No providers configured');
@@ -60,12 +63,58 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     this.startPolling(pluginConfig);
   }
 
-  private createProviders(config: PluginConfig): DeviceProvider[] {
+  private async createProviders(config: PluginConfig): Promise<DeviceProvider[]> {
     const providers: DeviceProvider[] = [];
 
     if (config.providers?.tuya) {
       this.log.info('Initializing Tuya provider');
       providers.push(new TuyaProvider(config.providers.tuya));
+    }
+
+    if (config.providers?.alexa) {
+      this.log.info('Initializing Alexa provider');
+      const alexaClient = new AlexaClient({
+        amazonDomain: config.providers.alexa.amazonDomain ?? 'amazon.com',
+        proxyPort: config.providers.alexa.proxyPort ?? 3456,
+        cookieRefreshDays: config.providers.alexa.cookieRefreshDays ?? 4,
+        persistPath: this.api.user.storagePath(),
+        logger: (msg: string) => this.log.debug('[Alexa]', msg),
+      });
+
+      const cookiePath = `${this.api.user.storagePath()}/.alexa-bridge-cookie.json`;
+      let storedCookie: any;
+      try {
+        const data = readFileSync(cookiePath, 'utf8');
+        storedCookie = JSON.parse(data);
+      } catch {
+        this.log.info('No stored Alexa cookie — proxy login required at http://127.0.0.1:' + (config.providers.alexa.proxyPort ?? 3456));
+      }
+
+      try {
+        await alexaClient.init(storedCookie);
+        this.log.info('Alexa authenticated');
+
+        alexaClient.onCookieRefresh((cookie) => {
+          try {
+            writeFileSync(cookiePath, JSON.stringify(cookie));
+            this.log.info('Alexa cookie refreshed and saved');
+          } catch (err) {
+            this.log.warn('Failed to save Alexa cookie:', err);
+          }
+        });
+
+        const cookieData = alexaClient.getCookieData();
+        if (cookieData) {
+          try {
+            writeFileSync(cookiePath, JSON.stringify(cookieData));
+          } catch { /* ignore */ }
+        }
+
+        providers.push(new AlexaProvider(alexaClient, config.providers.alexa));
+      } catch (err) {
+        this.log.error('Alexa initialization failed:', err);
+        this.log.warn('Alexa devices will not be available. Check proxy login.');
+      }
     }
 
     return providers;
@@ -116,7 +165,9 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   }
 
   private startPolling(config: PluginConfig): void {
-    const interval = (config.providers?.tuya?.pollInterval ?? 30) * 1000;
+    const tuyaInterval = config.providers?.tuya?.pollInterval ?? 30;
+    const alexaInterval = config.providers?.alexa?.pollInterval ?? 60;
+    const interval = Math.max(15, Math.min(tuyaInterval, alexaInterval)) * 1000;
 
     this.pollTimer = setInterval(async () => {
       if (!this.deviceManager) return;
