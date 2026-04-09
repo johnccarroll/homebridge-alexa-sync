@@ -1,7 +1,7 @@
 import type { API } from 'homebridge';
+import { AlexaBridgePlatform } from './platform.js';
 import { PLATFORM_NAME } from './settings.js';
 
 export default (api: API) => {
-  // Platform class will be added in Task 8
-  api.registerPlatform(PLATFORM_NAME, class {} as any);
+  api.registerPlatform(PLATFORM_NAME, AlexaBridgePlatform);
 };
