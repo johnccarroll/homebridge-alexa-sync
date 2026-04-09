@@ -18,6 +18,7 @@ import { AlexaProvider } from './providers/alexa/index.js';
 import { AlexaClient } from './providers/alexa/client.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { configureAccessory, updateAccessoryState } from './accessory.js';
+import { ApiServer } from './api-server.js';
 
 export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
@@ -26,6 +27,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   private readonly cachedAccessories = new Map<string, PlatformAccessory>();
   private deviceManager?: DeviceManager;
   private pollTimer?: ReturnType<typeof setInterval>;
+  private apiServer?: ApiServer;
 
   constructor(
     public readonly log: Logging,
@@ -61,6 +63,17 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     this.deviceManager = new DeviceManager(providers);
     await this.discoverAndRegister();
     this.startPolling(pluginConfig);
+
+    // Start API server for Alexa Smart Home Skill
+    if (pluginConfig.alexaSkill?.enabled && pluginConfig.alexaSkill?.apiKey) {
+      const port = pluginConfig.alexaSkill.apiPort ?? 9090;
+      this.apiServer = new ApiServer(this.deviceManager, {
+        port,
+        apiKey: pluginConfig.alexaSkill.apiKey,
+      });
+      await this.apiServer.start();
+      this.log.info(`Alexa Skill API server running on port ${port}`);
+    }
   }
 
   private async createProviders(config: PluginConfig): Promise<DeviceProvider[]> {
