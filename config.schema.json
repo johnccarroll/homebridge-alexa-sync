@@ -1,0 +1,43 @@
+{
+  "pluginAlias": "AlexaBridge",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "required": ["name"],
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "Alexa Bridge"
+      },
+      "providers": {
+        "title": "Providers",
+        "type": "object",
+        "properties": {
+          "tuya": {
+            "title": "Tuya / Smart Life",
+            "type": "object",
+            "properties": {
+              "accessId": { "title": "Access ID", "type": "string" },
+              "accessKey": { "title": "Access Key", "type": "string" },
+              "region": {
+                "title": "Region",
+                "type": "string",
+                "oneOf": [
+                  { "title": "US", "enum": ["us"] },
+                  { "title": "EU", "enum": ["eu"] },
+                  { "title": "CN", "enum": ["cn"] },
+                  { "title": "IN", "enum": ["in"] }
+                ],
+                "default": "us"
+              },
+              "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 30 }
+            },
+            "required": ["accessId", "accessKey"]
+          }
+        }
+      }
+    }
+  }
+}
