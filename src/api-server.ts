@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import type { DeviceManager } from './device-manager.js';
+import { handleAlexaDirective } from './alexa-skill/handler.js';
 
 interface ApiServerConfig {
   port: number;
@@ -67,6 +68,11 @@ export class ApiServer {
         const state = JSON.parse(body);
         await this.dm.setState(deviceId, state);
         this.json(res, 200, { ok: true });
+      } else if (req.method === 'POST' && path === '/alexa/directive') {
+        const body = await this.readBody(req);
+        const event = JSON.parse(body);
+        const response = await handleAlexaDirective(event, this.dm);
+        this.json(res, 200, response);
       } else {
         this.json(res, 404, { error: 'Not found' });
       }

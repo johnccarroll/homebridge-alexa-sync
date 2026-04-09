@@ -87,4 +87,23 @@ describe('ApiServer', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('POST /alexa/directive handles Discovery', async () => {
+    const directive = {
+      directive: {
+        header: { namespace: 'Alexa.Discovery', name: 'Discover', payloadVersion: '3', messageId: 'msg-1' },
+        payload: { scope: { type: 'BearerToken', token: 'tok' } },
+      },
+    };
+
+    const res = await fetch(`http://127.0.0.1:${PORT}/alexa/directive`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'test-key', 'Content-Type': 'application/json' },
+      body: JSON.stringify(directive),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.event.header.name).toBe('Discover.Response');
+    expect(data.event.payload.endpoints).toHaveLength(1);
+  });
 });
