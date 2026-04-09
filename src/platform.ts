@@ -228,16 +228,30 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   }
 
   private startPolling(config: PluginConfig): void {
-    const tuyaInterval = config.providers?.tuya?.pollInterval ?? 30;
-    const alexaInterval = config.providers?.alexa?.pollInterval ?? 60;
-    const interval = Math.max(15, Math.min(tuyaInterval, alexaInterval)) * 1000;
+    const providerIntervals: Record<string, number> = {
+      tuya: (config.providers?.tuya?.pollInterval ?? 30) * 1000,
+      alexa: (config.providers?.alexa?.pollInterval ?? 60) * 1000,
+      resideo: (config.providers?.resideo?.pollInterval ?? 120) * 1000,
+    };
+    const lastPollTime = new Map<string, number>();
+    const tickInterval = 15_000; // Check every 15s
 
     this.pollTimer = setInterval(async () => {
       if (!this.deviceManager) return;
 
+      const now = Date.now();
       const devices = this.deviceManager.getAllDevices();
+      const toPoll = devices.filter(device => {
+        const interval = providerIntervals[device.provider] ?? 60_000;
+        const lastPoll = lastPollTime.get(device.id) ?? 0;
+        return now - lastPoll >= interval;
+      });
+
+      if (toPoll.length === 0) return;
+
       const results = await Promise.allSettled(
-        devices.map(async (device) => {
+        toPoll.map(async (device) => {
+          lastPollTime.set(device.id, now);
           this.deviceManager!.invalidateCache(device.id);
           const state = await this.deviceManager!.getState(device.id);
           const uuid = this.api.hap.uuid.generate(device.id);
@@ -255,6 +269,6 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
           this.log.warn('Poll failed:', r.reason);
         }
       }
-    }, interval);
+    }, tickInterval);
   }
 }
