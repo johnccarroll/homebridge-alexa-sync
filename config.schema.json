@@ -35,6 +35,33 @@
               "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 30 }
             },
             "required": ["accessId", "accessKey"]
+          },
+          "alexa": {
+            "title": "Alexa (Cookie-Based Fallback)",
+            "type": "object",
+            "properties": {
+              "amazonDomain": {
+                "title": "Amazon Domain",
+                "type": "string",
+                "default": "amazon.com",
+                "oneOf": [
+                  { "title": "US (amazon.com)", "enum": ["amazon.com"] },
+                  { "title": "UK (amazon.co.uk)", "enum": ["amazon.co.uk"] },
+                  { "title": "DE (amazon.de)", "enum": ["amazon.de"] },
+                  { "title": "CA (amazon.ca)", "enum": ["amazon.ca"] },
+                  { "title": "AU (amazon.com.au)", "enum": ["amazon.com.au"] }
+                ]
+              },
+              "proxyPort": { "title": "Auth Proxy Port", "type": "number", "default": 3456 },
+              "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 60 },
+              "cookieRefreshDays": { "title": "Cookie Refresh Interval (days)", "type": "number", "default": 4 },
+              "deviceTypes": {
+                "title": "Device Types to Import",
+                "type": "array",
+                "items": { "type": "string" },
+                "default": ["LIGHT", "SWITCH", "SMARTPLUG"]
+              }
+            }
           }
         }
       }

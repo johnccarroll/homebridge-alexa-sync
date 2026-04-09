@@ -5,7 +5,9 @@
   "description": "Two-way bridge between Homebridge and Alexa with provider-based device support",
   "type": "module",
   "main": "dist/index.js",
-  "keywords": ["homebridge-plugin"],
+  "keywords": [
+    "homebridge-plugin"
+  ],
   "license": "MIT",
   "engines": {
     "node": "^20.18.0 || ^22.10.0 || ^24.0.0",
@@ -23,5 +25,8 @@
     "rimraf": "^6.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "alexa-remote2": "^8.0.4"
   }
 }

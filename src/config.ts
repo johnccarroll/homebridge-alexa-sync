@@ -6,10 +6,19 @@ export interface TuyaConfig {
   localKeys?: Record<string, string>;
 }
 
+export interface AlexaConfig {
+  amazonDomain?: string;
+  proxyPort?: number;
+  pollInterval?: number;
+  cookieRefreshDays?: number;
+  deviceTypes?: string[];
+}
+
 export interface PluginConfig {
   name: string;
   providers?: {
     tuya?: TuyaConfig;
+    alexa?: AlexaConfig;
   };
 }
 
@@ -25,6 +34,12 @@ export function validateConfig(config: Record<string, unknown>): config is Plugi
     if (!tuya.accessId || typeof tuya.accessId !== 'string') return false;
     if (!tuya.accessKey || typeof tuya.accessKey !== 'string') return false;
     if (tuya.region && !TUYA_REGIONS.has(tuya.region as string)) return false;
+  }
+
+  const alexa = providers.alexa as Record<string, unknown> | undefined;
+  if (alexa) {
+    if (alexa.proxyPort !== undefined && typeof alexa.proxyPort !== 'number') return false;
+    if (alexa.pollInterval !== undefined && typeof alexa.pollInterval !== 'number') return false;
   }
   return true;
 }
