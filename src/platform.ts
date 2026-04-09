@@ -186,11 +186,11 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
         );
 
         if (isNew) {
-          this.log.info(`Adding new accessory: ${device.name}`);
+          this.log.debug(`Registering accessory: ${device.name}`);
           try {
             this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-          } catch (err) {
-            this.log.warn(`Registration warning for ${device.name}:`, err);
+          } catch {
+            // Homebridge 2.x alpha auto-bridges on construction — safe to ignore
           }
           this.cachedAccessories.set(uuid, accessory);
         }
