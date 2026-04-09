@@ -9,6 +9,16 @@ interface HapTypes {
 type GetState = (deviceId: string) => Promise<DeviceState>;
 type SetState = (deviceId: string, state: Partial<DeviceState>) => Promise<void>;
 
+/** Wraps a promise with a timeout to prevent Homebridge handler hangs */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+const GET_TIMEOUT_MS = 8000; // Homebridge times out at 10s, give ourselves 8s
+
 function kelvinToMired(kelvin: number): number {
   return Math.round(1_000_000 / kelvin);
 }
@@ -51,10 +61,13 @@ function configureLightAccessory(
 
   const caps = new Set(device.capabilities.map(c => c.type));
 
+  // Helper to get state with timeout — prevents Homebridge "didn't respond" errors
+  const safeGetState = (id: string) => withTimeout(getState(id), GET_TIMEOUT_MS, {} as DeviceState);
+
   if (caps.has('on-off')) {
     service.getCharacteristic(hap.Characteristic.On)
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await getState(device.id);
+        const state = await safeGetState(device.id);
         return state.on ?? false;
       })
       .onSet(async (value: CharacteristicValue) => {
@@ -65,7 +78,7 @@ function configureLightAccessory(
   if (caps.has('brightness')) {
     service.getCharacteristic(hap.Characteristic.Brightness)
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await getState(device.id);
+        const state = await safeGetState(device.id);
         return state.brightness ?? 100;
       })
       .onSet(async (value: CharacteristicValue) => {
@@ -76,7 +89,7 @@ function configureLightAccessory(
   if (caps.has('color')) {
     service.getCharacteristic(hap.Characteristic.Hue)
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await getState(device.id);
+        const state = await safeGetState(device.id);
         return state.hue ?? 0;
       })
       .onSet(async (value: CharacteristicValue) => {
@@ -85,7 +98,7 @@ function configureLightAccessory(
 
     service.getCharacteristic(hap.Characteristic.Saturation)
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await getState(device.id);
+        const state = await safeGetState(device.id);
         return state.saturation ?? 0;
       })
       .onSet(async (value: CharacteristicValue) => {
@@ -96,17 +109,17 @@ function configureLightAccessory(
   if (caps.has('color-temperature')) {
     const ctCap = device.capabilities.find(c => c.type === 'color-temperature');
     const range = ctCap && 'range' in ctCap ? ctCap.range : [2700, 6500];
-    const minMired = kelvinToMired(range[1]); // high kelvin = low mired
-    const maxMired = kelvinToMired(range[0]); // low kelvin = high mired
+    const minMired = kelvinToMired(range[1]);
+    const maxMired = kelvinToMired(range[0]);
 
-    const defaultMired = kelvinToMired(4000); // ~250 mired, safe mid-range default
+    const defaultMired = kelvinToMired(4000);
     service.getCharacteristic(hap.Characteristic.ColorTemperature)
       .updateValue(Math.max(minMired, Math.min(maxMired, defaultMired)))
       .setProps({ minValue: minMired, maxValue: maxMired })
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await getState(device.id);
+        const state = await safeGetState(device.id);
         const mired = kelvinToMired(state.colorTemperature ?? 4000);
-        return Math.max(minMired, Math.min(maxMired, mired)); // clamp to valid range
+        return Math.max(minMired, Math.min(maxMired, mired));
       })
       .onSet(async (value: CharacteristicValue) => {
         await setState(device.id, { colorTemperature: miredToKelvin(value as number) });
