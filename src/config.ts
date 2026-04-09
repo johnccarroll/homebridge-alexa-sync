@@ -14,12 +14,19 @@ export interface AlexaConfig {
   deviceTypes?: string[];
 }
 
+export interface AlexaSkillConfig {
+  enabled?: boolean;
+  apiPort?: number;
+  apiKey?: string;
+}
+
 export interface PluginConfig {
   name: string;
   providers?: {
     tuya?: TuyaConfig;
     alexa?: AlexaConfig;
   };
+  alexaSkill?: AlexaSkillConfig;
 }
 
 const TUYA_REGIONS = new Set(['us', 'eu', 'cn', 'in']);

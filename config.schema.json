@@ -11,6 +11,15 @@
         "type": "string",
         "default": "Alexa Bridge"
       },
+      "alexaSkill": {
+        "title": "Alexa Smart Home Skill (Two-Way Sync)",
+        "type": "object",
+        "properties": {
+          "enabled": { "title": "Enable Alexa Skill API", "type": "boolean", "default": false },
+          "apiPort": { "title": "API Server Port", "type": "number", "default": 9090 },
+          "apiKey": { "title": "API Key (shared secret with Lambda)", "type": "string" }
+        }
+      },
       "providers": {
         "title": "Providers",
         "type": "object",
