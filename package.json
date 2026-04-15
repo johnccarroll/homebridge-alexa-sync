@@ -31,8 +31,8 @@
   },
   "homepage": "https://github.com/johnccarroll/homebridge-alexa-bridge#readme",
   "engines": {
-    "node": "^20.18.0 || ^22.10.0 || ^24.0.0",
-    "homebridge": ">=1.8.0"
+    "node": "^18.20.4 || ^20.15.1 || ^22 || ^24",
+    "homebridge": "^1.8.0 || ^2.0.0-beta.0"
   },
   "scripts": {
     "build": "rimraf ./dist && tsc",
@@ -42,7 +42,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "homebridge": "^2.0.0-beta.55",
+    "homebridge": "^2.0.0-beta.89",
     "rimraf": "^6.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
