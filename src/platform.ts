@@ -140,6 +140,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
         cookieRefreshDays: config.providers.alexa.cookieRefreshDays ?? 4,
         persistPath: this.api.user.storagePath(),
         logger: (msg: string) => this.log.debug('[Alexa]', msg),
+        warnLogger: (msg: string) => this.log.warn(msg),
       });
 
       const cookiePath = `${this.api.user.storagePath()}/.alexa-bridge-cookie.json`;
@@ -237,6 +238,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
           { Service: this.Service, Characteristic: this.Characteristic },
           (id) => this.deviceManager!.getState(id),
           (id, state) => this.deviceManager!.setState(id, state),
+          (id) => this.deviceManager!.getCachedState(id),
         );
 
         if (isNew) {
@@ -274,6 +276,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     };
     const lastPollTime = new Map<string, number>();
     const tickInterval = 15_000; // Check every 15s
+    const suppressedProviders = new Set<string>();
 
     this.pollTimer = setInterval(async () => {
       if (!this.deviceManager) return;
@@ -288,11 +291,20 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
 
       if (toPoll.length === 0) return;
 
-      const results = await Promise.allSettled(
-        toPoll.map(async (device) => {
+      // Batch Alexa devices into a single bulk query instead of N individual calls
+      const alexaDevices = toPoll.filter(d => d.provider === 'alexa');
+      const otherDevices = toPoll.filter(d => d.provider !== 'alexa');
+
+      // Poll non-Alexa devices individually (Tuya, Resideo have their own batching)
+      const otherResults = await Promise.allSettled(
+        otherDevices.map(async (device) => {
           lastPollTime.set(device.id, now);
           this.deviceManager!.invalidateCache(device.id);
           const state = await this.deviceManager!.getState(device.id);
+          if (suppressedProviders.has(device.provider)) {
+            suppressedProviders.delete(device.provider);
+            this.log.info(`${device.provider} provider: recovered`);
+          }
           const uuid = this.api.hap.uuid.generate(device.id);
           const accessory = this.cachedAccessories.get(uuid);
           if (accessory) {
@@ -303,9 +315,75 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
           }
         }),
       );
-      for (const r of results) {
-        if (r.status === 'rejected') {
-          this.log.warn('Poll failed:', r.reason);
+
+      // Poll Alexa devices in one bulk request
+      let alexaBulkResult: PromiseSettledResult<void> | undefined;
+      if (alexaDevices.length > 0) {
+        const alexaProvider = this.deviceManager!.getProvider('alexa') as AlexaProvider | undefined;
+        alexaBulkResult = await Promise.allSettled([
+          (async () => {
+            if (!alexaProvider) throw new Error('Alexa provider not found');
+            const deviceIds = alexaDevices.map(d => d.id.slice('alexa.'.length));
+            const states = await alexaProvider.getStates(deviceIds);
+            for (const device of alexaDevices) {
+              lastPollTime.set(device.id, now);
+              this.deviceManager!.invalidateCache(device.id);
+              const localId = device.id.slice('alexa.'.length);
+              const state = states.get(localId) ?? {};
+              this.deviceManager!.updateCache(device.id, state);
+              const uuid = this.api.hap.uuid.generate(device.id);
+              const accessory = this.cachedAccessories.get(uuid);
+              if (accessory) {
+                updateAccessoryState(accessory, device, state, {
+                  Service: this.Service,
+                  Characteristic: this.Characteristic,
+                });
+              }
+            }
+            if (suppressedProviders.has('alexa')) {
+              suppressedProviders.delete('alexa');
+              this.log.info('alexa provider: recovered');
+            }
+          })(),
+        ]).then(r => r[0]);
+      }
+
+      // Combine results for error reporting
+
+      // Group failures by provider
+      const failedProviders = new Map<string, number>();
+      const polledProviders = new Map<string, number>();
+      for (const device of otherDevices) {
+        polledProviders.set(device.provider, (polledProviders.get(device.provider) ?? 0) + 1);
+      }
+      for (let i = 0; i < otherResults.length; i++) {
+        if (otherResults[i].status === 'rejected') {
+          const provider = otherDevices[i].provider;
+          failedProviders.set(provider, (failedProviders.get(provider) ?? 0) + 1);
+        }
+      }
+      if (alexaDevices.length > 0 && alexaBulkResult) {
+        polledProviders.set('alexa', alexaDevices.length);
+        if (alexaBulkResult.status === 'rejected') {
+          failedProviders.set('alexa', alexaDevices.length);
+        }
+      }
+
+      for (const [provider, failCount] of failedProviders) {
+        const totalCount = polledProviders.get(provider) ?? 0;
+        if (failCount === totalCount && !suppressedProviders.has(provider)) {
+          suppressedProviders.add(provider);
+          this.log.warn(`${provider} provider: all ${failCount} device(s) failed — suppressing repeat logs`);
+        } else if (!suppressedProviders.has(provider)) {
+          if (provider === 'alexa' && alexaBulkResult?.status === 'rejected') {
+            this.log.warn('Poll failed:', (alexaBulkResult as PromiseRejectedResult).reason);
+          } else {
+            for (let i = 0; i < otherDevices.length; i++) {
+              if (otherDevices[i].provider === provider && otherResults[i].status === 'rejected') {
+                this.log.warn('Poll failed:', (otherResults[i] as PromiseRejectedResult).reason);
+              }
+            }
+          }
         }
       }
     }, tickInterval);

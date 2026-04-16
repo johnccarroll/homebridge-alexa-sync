@@ -99,6 +99,22 @@ export class DeviceManager {
     this.onChangeCallback = callback;
   }
 
+  getProvider(id: string): DeviceProvider | undefined {
+    return this.providers.get(id);
+  }
+
+  getCachedState(deviceId: string): DeviceState | undefined {
+    const cached = this.stateCache.get(deviceId);
+    if (cached && Date.now() - cached.timestamp < this.cacheTtlMs) {
+      return cached.state;
+    }
+    return undefined;
+  }
+
+  updateCache(deviceId: string, state: DeviceState): void {
+    this.stateCache.set(deviceId, { state, timestamp: Date.now() });
+  }
+
   invalidateCache(deviceId: string): void {
     this.stateCache.delete(deviceId);
   }

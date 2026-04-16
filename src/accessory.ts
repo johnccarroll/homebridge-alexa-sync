@@ -7,17 +7,8 @@ interface HapTypes {
 }
 
 type GetState = (deviceId: string) => Promise<DeviceState>;
+type GetCachedState = (deviceId: string) => DeviceState | undefined;
 type SetState = (deviceId: string, state: Partial<DeviceState>) => Promise<void>;
-
-/** Wraps a promise with a timeout to prevent Homebridge handler hangs */
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
-}
-
-const GET_TIMEOUT_MS = 8000; // Homebridge times out at 10s, give ourselves 8s
 
 function kelvinToMired(kelvin: number): number {
   return Math.round(1_000_000 / kelvin);
@@ -33,6 +24,7 @@ export function configureAccessory(
   hap: HapTypes,
   getState: GetState,
   setState: SetState,
+  getCachedState?: GetCachedState,
 ): void {
   accessory.context.device = device;
 
@@ -44,12 +36,21 @@ export function configureAccessory(
       .setCharacteristic(hap.Characteristic.SerialNumber, device.id);
   }
 
+  // Prefer cached state (instant) over live API calls to avoid "slow to respond" warnings.
+  // The polling loop keeps the cache warm; onGet handlers return cached values immediately.
+  // Falls back to a live API call only if cache is empty (e.g. first read before first poll).
+  const fastGetState = (id: string): Promise<DeviceState> => {
+    const cached = getCachedState?.(id);
+    if (cached) return Promise.resolve(cached);
+    return getState(id).catch(() => ({} as DeviceState));
+  };
+
   if (device.type === 'light') {
-    configureLightAccessory(accessory, device, hap, getState, setState);
+    configureLightAccessory(accessory, device, hap, fastGetState, setState);
   }
 
   if (device.type === 'thermostat') {
-    configureThermostatAccessory(accessory, device, hap, getState, setState);
+    configureThermostatAccessory(accessory, device, hap, fastGetState, setState);
   }
 }
 
@@ -65,13 +66,10 @@ function configureLightAccessory(
 
   const caps = new Set(device.capabilities.map(c => c.type));
 
-  // Helper to get state with timeout — prevents Homebridge "didn't respond" errors
-  const safeGetState = (id: string) => withTimeout(getState(id), GET_TIMEOUT_MS, {} as DeviceState);
-
   if (caps.has('on-off')) {
     service.getCharacteristic(hap.Characteristic.On)
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await safeGetState(device.id);
+        const state = await getState(device.id);
         return state.on ?? false;
       })
       .onSet(async (value: CharacteristicValue) => {
@@ -82,7 +80,7 @@ function configureLightAccessory(
   if (caps.has('brightness')) {
     service.getCharacteristic(hap.Characteristic.Brightness)
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await safeGetState(device.id);
+        const state = await getState(device.id);
         return state.brightness ?? 100;
       })
       .onSet(async (value: CharacteristicValue) => {
@@ -93,7 +91,7 @@ function configureLightAccessory(
   if (caps.has('color')) {
     service.getCharacteristic(hap.Characteristic.Hue)
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await safeGetState(device.id);
+        const state = await getState(device.id);
         return state.hue ?? 0;
       })
       .onSet(async (value: CharacteristicValue) => {
@@ -102,7 +100,7 @@ function configureLightAccessory(
 
     service.getCharacteristic(hap.Characteristic.Saturation)
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await safeGetState(device.id);
+        const state = await getState(device.id);
         return state.saturation ?? 0;
       })
       .onSet(async (value: CharacteristicValue) => {
@@ -121,7 +119,7 @@ function configureLightAccessory(
       .updateValue(Math.max(minMired, Math.min(maxMired, defaultMired)))
       .setProps({ minValue: minMired, maxValue: maxMired })
       .onGet(async (): Promise<CharacteristicValue> => {
-        const state = await safeGetState(device.id);
+        const state = await getState(device.id);
         const mired = kelvinToMired(state.colorTemperature ?? 4000);
         return Math.max(minMired, Math.min(maxMired, mired));
       })
@@ -141,12 +139,10 @@ function configureThermostatAccessory(
   const service = accessory.getService(hap.Service.Thermostat)
     || accessory.addService(hap.Service.Thermostat);
 
-  const safeGetState = (id: string) => withTimeout(getState(id), GET_TIMEOUT_MS, {} as DeviceState);
-
   // Current Temperature (read-only)
   service.getCharacteristic(hap.Characteristic.CurrentTemperature)
     .onGet(async (): Promise<CharacteristicValue> => {
-      const state = await safeGetState(device.id);
+      const state = await getState(device.id);
       return state.temperature ?? 20;
     });
 
@@ -154,7 +150,7 @@ function configureThermostatAccessory(
   service.getCharacteristic(hap.Characteristic.TargetTemperature)
     .setProps({ minValue: 10, maxValue: 37, minStep: 0.5 })
     .onGet(async (): Promise<CharacteristicValue> => {
-      const state = await safeGetState(device.id);
+      const state = await getState(device.id);
       return state.targetTemperature ?? 20;
     })
     .onSet(async (value: CharacteristicValue) => {
@@ -164,7 +160,7 @@ function configureThermostatAccessory(
   // Current Heating/Cooling State (read-only, what it's doing now)
   service.getCharacteristic(hap.Characteristic.CurrentHeatingCoolingState)
     .onGet(async (): Promise<CharacteristicValue> => {
-      const state = await safeGetState(device.id);
+      const state = await getState(device.id);
       switch (state.thermostatMode) {
         case 'heat': return 1; // HEAT
         case 'cool': return 2; // COOL
@@ -175,7 +171,7 @@ function configureThermostatAccessory(
   // Target Heating/Cooling State
   service.getCharacteristic(hap.Characteristic.TargetHeatingCoolingState)
     .onGet(async (): Promise<CharacteristicValue> => {
-      const state = await safeGetState(device.id);
+      const state = await getState(device.id);
       switch (state.thermostatMode) {
         case 'heat': return 1;
         case 'cool': return 2;
