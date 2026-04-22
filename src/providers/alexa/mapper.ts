@@ -119,8 +119,28 @@ export function alexaStateToDeviceState(state: AlexaDeviceState): DeviceState {
   const temp = state['Alexa.TemperatureSensor'];
   if (temp?.temperature) {
     const t = temp.temperature as { value: number; scale: string };
-    result.temperature = t.value;
+    result.temperature = toC(t.value, t.scale);
+  }
+
+  const thermostat = state['Alexa.ThermostatController'];
+  if (thermostat?.targetSetpoint) {
+    const t = thermostat.targetSetpoint as { value: number; scale: string };
+    result.targetTemperature = toC(t.value, t.scale);
+  }
+  if (thermostat?.thermostatMode) {
+    const mode = (thermostat.thermostatMode as string).toLowerCase();
+    result.thermostatMode = mode === 'off' ? 'off'
+      : mode === 'heat' ? 'heat'
+      : mode === 'cool' ? 'cool'
+      : 'auto';
   }
 
   return result;
+}
+
+function toC(value: number, scale: string): number {
+  const celsius = scale?.toUpperCase() === 'FAHRENHEIT'
+    ? (value - 32) * 5 / 9
+    : value;
+  return Math.round(celsius * 10) / 10;
 }
