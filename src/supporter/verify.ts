@@ -24,7 +24,7 @@ const ISSUER_PUBLIC_KEY_JWK = {
   x: 'SdFPD9o7GOGJKR0feuj3bMzxuJvUcN7elXSS5DvonAk',
 } as const;
 
-const EXPECTED_ISSUER = 'https://sponsors.hb-alexa.dev';
+const EXPECTED_ISSUER = 'https://hb.johncarroll.dev';
 
 export interface SupporterClaims {
   iss: string;

@@ -8,7 +8,7 @@ import type {
   PlatformConfig,
   Service,
 } from 'homebridge';
-import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
+import { PLATFORM_NAME, PLUGIN_NAME, PLUGIN_VERSION } from './settings.js';
 import type { PluginConfig } from './config.js';
 import { validateConfig } from './config.js';
 import { DeviceManager } from './device-manager.js';
@@ -30,7 +30,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   private deviceManager?: DeviceManager;
   private pollTimer?: ReturnType<typeof setInterval>;
   private apiServer?: ApiServer;
-  private supporter: SupporterState = { active: false };
+  private supporter: SupporterState = { mode: 'trial', devicesAllowed: true };
 
   constructor(
     public readonly log: Logging,
@@ -62,7 +62,20 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
 
   private async init(): Promise<void> {
     const pluginConfig = this.config as unknown as PluginConfig;
-    this.supporter = loadSupporterState(pluginConfig.supporter, this.log);
+    this.supporter = loadSupporterState(
+      pluginConfig.supporter,
+      this.api.user.storagePath(),
+      PLUGIN_VERSION,
+      this.log,
+    );
+
+    if (!this.supporter.devicesAllowed) {
+      // Trial expired without a supporter token. The plugin still loads,
+      // but we skip provider init + device registration entirely. A prominent
+      // CTA was already logged by loadSupporterState.
+      return;
+    }
+
     const providers = await this.createProviders(pluginConfig);
 
     if (providers.length === 0) {

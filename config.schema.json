@@ -23,8 +23,8 @@
         }
       },
       "supporter": {
-        "title": "Supporter License (optional)",
-        "description": "Paste a JWT from https://sponsors.hb-alexa.dev to enable supporter-tier features. The plugin works fully without this — sponsorship unlocks the managed Alexa Smart Home Skill backend (no AWS Lambda setup required). Verified offline against an embedded public key; no network calls.",
+        "title": "Supporter License",
+        "description": "The plugin runs free for 14 days. To keep controlling devices after the trial, sponsor at github.com/sponsors/johnccarroll ($3/mo, cancel anytime), then get a token at https://hb.johncarroll.dev and paste it below. Verified offline against an embedded public key — the plugin never sends your email or any other data to an external server.",
         "type": "object",
         "properties": {
           "token": {
