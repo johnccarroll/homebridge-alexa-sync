@@ -33,6 +33,7 @@ export interface AlexaClientConfig {
   cookieRefreshDays: number;
   persistPath: string;
   logger?: (msg: string) => void;
+  warnLogger?: (msg: string) => void;
 }
 
 interface CookieData {
@@ -51,11 +52,16 @@ const ALEXA_SERVICE_HOSTS: Record<string, string> = {
 };
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const CIRCUIT_BREAKER_THRESHOLD = 5;
+const CIRCUIT_PROBE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 export class AlexaClient {
   private remote: AlexaRemoteInstance;
   private initialized = false;
   private readonly config: AlexaClientConfig;
+  private consecutiveFailures = 0;
+  private circuitOpen = false;
+  private circuitOpenedAt = 0;
 
   constructor(config: AlexaClientConfig) {
     this.config = config;
@@ -147,16 +153,106 @@ export class AlexaClient {
     });
   }
 
+  isHealthy(): boolean {
+    return !this.circuitOpen;
+  }
+
   async queryDeviceState(applianceId: string): Promise<AlexaDeviceState> {
+    // Circuit breaker: reject immediately if circuit is open and not time to probe
+    if (this.circuitOpen) {
+      const elapsed = Date.now() - this.circuitOpenedAt;
+      if (elapsed < CIRCUIT_PROBE_INTERVAL_MS) {
+        throw new Error('Alexa circuit open — skipping query');
+      }
+      // Half-open: allow one probe query through
+    }
+
+    try {
+      const state = await this.queryDeviceStateInternal(applianceId);
+      if (this.circuitOpen) {
+        const warn = this.config.warnLogger ?? this.config.logger;
+        warn?.('Alexa connection recovered — resuming polls');
+      }
+      this.consecutiveFailures = 0;
+      this.circuitOpen = false;
+      return state;
+    } catch (err) {
+      this.consecutiveFailures++;
+      if (!this.circuitOpen && this.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+        this.circuitOpen = true;
+        this.circuitOpenedAt = Date.now();
+        const warn = this.config.warnLogger ?? this.config.logger;
+        warn?.(
+          `Alexa polling paused after ${this.consecutiveFailures} consecutive failures — will probe every 5 minutes`,
+        );
+        // Check auth status to give the user actionable info
+        this.isAuthenticated().then(
+          (authed) => {
+            if (!authed) {
+              warn?.(
+                'Alexa authentication appears invalid — re-login required via proxy',
+              );
+            }
+          },
+          () => { /* ignore auth check errors */ },
+        );
+      }
+      throw err;
+    }
+  }
+
+  async queryDeviceStates(applianceIds: string[]): Promise<Map<string, AlexaDeviceState>> {
+    if (applianceIds.length === 0) return new Map();
+
+    // Circuit breaker applies to bulk queries too
+    if (this.circuitOpen) {
+      const elapsed = Date.now() - this.circuitOpenedAt;
+      if (elapsed < CIRCUIT_PROBE_INTERVAL_MS) {
+        throw new Error('Alexa circuit open — skipping query');
+      }
+    }
+
+    try {
+      const result = await this.queryDeviceStatesInternal(applianceIds);
+      if (this.circuitOpen) {
+        const warn = this.config.warnLogger ?? this.config.logger;
+        warn?.('Alexa connection recovered — resuming polls');
+      }
+      this.consecutiveFailures = 0;
+      this.circuitOpen = false;
+      return result;
+    } catch (err) {
+      this.consecutiveFailures++;
+      if (!this.circuitOpen && this.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+        this.circuitOpen = true;
+        this.circuitOpenedAt = Date.now();
+        const warn = this.config.warnLogger ?? this.config.logger;
+        warn?.(
+          `Alexa polling paused after ${this.consecutiveFailures} consecutive failures — will probe every 5 minutes`,
+        );
+        this.isAuthenticated().then(
+          (authed) => {
+            if (!authed) {
+              warn?.('Alexa authentication appears invalid — re-login required via proxy');
+            }
+          },
+          () => { /* ignore auth check errors */ },
+        );
+      }
+      throw err;
+    }
+  }
+
+  private queryDeviceStateInternal(applianceId: string): Promise<AlexaDeviceState> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error('Alexa state query timed out'));
-      }, 10_000);
+      }, 30_000);
 
       this.remote.querySmarthomeDevices(
         [applianceId],
         'APPLIANCE',
-        15000,
+        30000,
         (err: Error | null, result: any) => {
           clearTimeout(timer);
           if (err) return reject(new Error(`State query failed: ${err.message}`));
@@ -178,6 +274,46 @@ export class AlexaClient {
             }
           }
           resolve(state);
+        },
+      );
+    });
+  }
+
+  private queryDeviceStatesInternal(applianceIds: string[]): Promise<Map<string, AlexaDeviceState>> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error('Alexa state query timed out'));
+      }, 30_000);
+
+      this.remote.querySmarthomeDevices(
+        applianceIds,
+        'APPLIANCE',
+        30000,
+        (err: Error | null, result: any) => {
+          clearTimeout(timer);
+          if (err) return reject(new Error(`State query failed: ${err.message}`));
+
+          const states = new Map<string, AlexaDeviceState>();
+          for (const deviceState of result?.deviceStates ?? []) {
+            const entityId = deviceState?.entity?.entityId as string | undefined;
+            if (!entityId || !deviceState?.capabilityStates) continue;
+
+            const state: AlexaDeviceState = {};
+            for (const raw of deviceState.capabilityStates) {
+              try {
+                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                const ns = parsed.namespace as string | undefined;
+                if (ns) {
+                  if (!state[ns]) state[ns] = {};
+                  state[ns][parsed.name as string] = parsed.value;
+                }
+              } catch {
+                // Skip malformed capability state
+              }
+            }
+            states.set(entityId, state);
+          }
+          resolve(states);
         },
       );
     });
@@ -210,6 +346,9 @@ export class AlexaClient {
     const client = Object.create(AlexaClient.prototype) as AlexaClient;
     (client as any).remote = mockRemote;
     (client as any).initialized = true;
+    (client as any).consecutiveFailures = 0;
+    (client as any).circuitOpen = false;
+    (client as any).circuitOpenedAt = 0;
     (client as any).config = {
       amazonDomain: 'amazon.com',
       proxyPort: 3456,

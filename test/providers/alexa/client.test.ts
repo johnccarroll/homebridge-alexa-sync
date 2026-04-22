@@ -68,6 +68,81 @@ describe('AlexaClient', () => {
     });
   });
 
+  describe('circuit breaker', () => {
+    it('opens after 5 consecutive failures and rejects immediately', async () => {
+      const mock = createMockRemote();
+      // Simulate immediate errors (not hangs) to avoid needing fake timers
+      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+        cb(new Error('network error'), null);
+      });
+      const client = AlexaClient.__createForTest(mock as any);
+
+      // Trigger 5 failures
+      for (let i = 0; i < 5; i++) {
+        await expect(client.queryDeviceState('app-id')).rejects.toThrow('State query failed');
+      }
+      expect(client.isHealthy()).toBe(false);
+
+      // 6th call should be rejected immediately without hitting the API
+      await expect(client.queryDeviceState('app-id')).rejects.toThrow('Alexa circuit open');
+      // Mock should have been called exactly 5 times (not 6)
+      expect(mock.querySmarthomeDevices).toHaveBeenCalledTimes(5);
+    });
+
+    it('recovers when a query succeeds after probe interval', async () => {
+      const mock = createMockRemote();
+      let callCount = 0;
+      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+        callCount++;
+        if (callCount <= 5) {
+          cb(new Error('network error'), null);
+        } else {
+          cb(null, { deviceStates: [{ capabilityStates: [] }], errors: [] });
+        }
+      });
+      const client = AlexaClient.__createForTest(mock as any);
+
+      // Open the circuit
+      for (let i = 0; i < 5; i++) {
+        await client.queryDeviceState('app-id').catch(() => {});
+      }
+      expect(client.isHealthy()).toBe(false);
+
+      // Simulate time passing beyond probe interval by manipulating circuitOpenedAt
+      (client as any).circuitOpenedAt = Date.now() - (5 * 60 * 1000 + 1);
+
+      // Next call should go through (half-open probe) and succeed
+      const state = await client.queryDeviceState('app-id');
+      expect(state).toEqual({});
+      expect(client.isHealthy()).toBe(true);
+    });
+
+    it('resets failure count on success', async () => {
+      const mock = createMockRemote();
+      let callCount = 0;
+      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+        callCount++;
+        if (callCount <= 3) {
+          cb(new Error('network error'), null);
+        } else {
+          cb(null, { deviceStates: [{ capabilityStates: [] }], errors: [] });
+        }
+      });
+      const client = AlexaClient.__createForTest(mock as any);
+
+      // 3 failures
+      for (let i = 0; i < 3; i++) {
+        await client.queryDeviceState('app-id').catch(() => {});
+      }
+      // Circuit should still be closed (threshold is 5)
+      expect(client.isHealthy()).toBe(true);
+
+      // Success resets counter
+      await client.queryDeviceState('app-id');
+      expect(client.isHealthy()).toBe(true);
+    });
+  });
+
   describe('isAuthenticated', () => {
     it('returns true when authenticated', async () => {
       const mock = createMockRemote();

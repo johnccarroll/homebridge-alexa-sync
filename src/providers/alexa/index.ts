@@ -12,6 +12,7 @@ export class AlexaProvider implements DeviceProvider {
   private readonly client: AlexaClient;
   private readonly config: Partial<AlexaConfig>;
   private readonly applianceIds = new Map<string, string>();
+  private readonly reverseApplianceIds = new Map<string, string>();
 
   constructor(client: AlexaClient, config: Partial<AlexaConfig>) {
     this.client = client;
@@ -28,6 +29,7 @@ export class AlexaProvider implements DeviceProvider {
         devices.push(device);
         const applianceId = ad.legacyAppliance?.applianceId ?? ad.id;
         this.applianceIds.set(ad.id, applianceId);
+        this.reverseApplianceIds.set(applianceId, ad.id);
       }
     }
 
@@ -40,6 +42,25 @@ export class AlexaProvider implements DeviceProvider {
 
     const alexaState = await this.client.queryDeviceState(applianceId);
     return alexaStateToDeviceState(alexaState);
+  }
+
+  async getStates(deviceIds: string[]): Promise<Map<string, DeviceState>> {
+    const applianceIdList: string[] = [];
+    for (const id of deviceIds) {
+      const applianceId = this.applianceIds.get(id);
+      if (applianceId) applianceIdList.push(applianceId);
+    }
+    if (applianceIdList.length === 0) return new Map();
+
+    const alexaStates = await this.client.queryDeviceStates(applianceIdList);
+    const result = new Map<string, DeviceState>();
+    for (const [applianceId, alexaState] of alexaStates) {
+      const deviceId = this.reverseApplianceIds.get(applianceId);
+      if (deviceId) {
+        result.set(deviceId, alexaStateToDeviceState(alexaState));
+      }
+    }
+    return result;
   }
 
   async setState(deviceId: string, state: Partial<DeviceState>): Promise<void> {
