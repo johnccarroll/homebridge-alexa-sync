@@ -22,6 +22,18 @@
           "lwaClientSecret": { "title": "LWA Client Secret", "type": "string", "x-schema-form": { "type": "password" } }
         }
       },
+      "supporter": {
+        "title": "Supporter License (optional)",
+        "description": "Paste a JWT from https://sponsors.hb-alexa.dev to enable supporter-tier features. The plugin works fully without this — sponsorship unlocks the managed Alexa Smart Home Skill backend (no AWS Lambda setup required). Verified offline against an embedded public key; no network calls.",
+        "type": "object",
+        "properties": {
+          "token": {
+            "title": "Supporter Token",
+            "type": "string",
+            "x-schema-form": { "type": "textarea" }
+          }
+        }
+      },
       "providers": {
         "title": "Providers",
         "type": "object",

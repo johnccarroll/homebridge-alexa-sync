@@ -30,6 +30,14 @@ export interface AlexaSkillConfig {
   lwaClientSecret?: string;
 }
 
+export interface SupporterConfig {
+  /** JWT issued by sponsors.hb-alexa.dev after a GitHub Sponsors check.
+   *  Verified offline with an embedded Ed25519 public key — the plugin
+   *  makes no network call to verify. Absence of this field (or verification
+   *  failure) = free mode with full plugin functionality. */
+  token?: string;
+}
+
 export interface PluginConfig {
   name: string;
   providers?: {
@@ -38,6 +46,7 @@ export interface PluginConfig {
     resideo?: ResideoConfig;
   };
   alexaSkill?: AlexaSkillConfig;
+  supporter?: SupporterConfig;
 }
 
 const TUYA_REGIONS = new Set(['us', 'eu', 'cn', 'in']);

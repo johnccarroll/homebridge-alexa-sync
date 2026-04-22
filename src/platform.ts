@@ -20,6 +20,7 @@ import { AlexaClient } from './providers/alexa/client.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { configureAccessory, updateAccessoryState } from './accessory.js';
 import { ApiServer } from './api-server.js';
+import { loadSupporterState, type SupporterState } from './supporter/index.js';
 
 export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
@@ -29,6 +30,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   private deviceManager?: DeviceManager;
   private pollTimer?: ReturnType<typeof setInterval>;
   private apiServer?: ApiServer;
+  private supporter: SupporterState = { active: false };
 
   constructor(
     public readonly log: Logging,
@@ -60,6 +62,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
 
   private async init(): Promise<void> {
     const pluginConfig = this.config as unknown as PluginConfig;
+    this.supporter = loadSupporterState(pluginConfig.supporter, this.log);
     const providers = await this.createProviders(pluginConfig);
 
     if (providers.length === 0) {
