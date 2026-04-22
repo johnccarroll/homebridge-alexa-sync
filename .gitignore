@@ -1,3 +1,25 @@
+# deps + builds
 node_modules/
 dist/
 *.tgz
+
+# runtime state (never commit — these hold auth material)
+.alexa-bridge-cookie.json
+.alexa-bridge-lwa-tokens.json
+*.cookie.json
+*.tokens.json
+
+# env files
+.env
+.env.*
+!.env.example
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# logs
+*.log
