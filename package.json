@@ -48,6 +48,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "alexa-remote2": "^8.0.4"
+    "alexa-remote2": "^8.0.4",
+    "mqtt": "^5.15.1"
   }
 }

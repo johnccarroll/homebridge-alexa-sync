@@ -10,6 +10,7 @@ import type {
 } from 'homebridge';
 import { PLATFORM_NAME, PLUGIN_NAME, PLUGIN_VERSION } from './settings.js';
 import type { PluginConfig } from './config.js';
+import type { DeviceState } from './types.js';
 import { validateConfig } from './config.js';
 import { DeviceManager } from './device-manager.js';
 import type { DeviceProvider } from './providers/provider.js';
@@ -139,12 +140,42 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     }
   }
 
+  /**
+   * Push a state update to HomeKit directly (used by MQTT push path so state
+   * changes reach the Home app in real time instead of on the next poll tick).
+   */
+  private updateHomeKitAccessory(fullId: string, state: DeviceState): void {
+    if (!this.deviceManager) return;
+    const device = this.deviceManager.getDevice(fullId);
+    if (!device) return;
+    const uuid = this.api.hap.uuid.generate(fullId);
+    const accessory = this.cachedAccessories.get(uuid);
+    if (!accessory) return;
+    updateAccessoryState(accessory, device, state, {
+      Service: this.Service,
+      Characteristic: this.Characteristic,
+    });
+  }
+
   private async createProviders(config: PluginConfig): Promise<DeviceProvider[]> {
     const providers: DeviceProvider[] = [];
 
     if (config.providers?.tuya) {
       this.log.info('Initializing Tuya provider');
-      providers.push(new TuyaProvider(config.providers.tuya));
+      const tuya = new TuyaProvider(config.providers.tuya, {
+        info: (m: string) => this.log.info(m),
+        warn: (m: string) => this.log.warn(m),
+        debug: (m: string) => this.log.debug(m),
+      });
+      // Propagate MQTT-pushed state changes to DeviceManager so accessories
+      // and proactive reporters update in real time (no polling lag).
+      tuya.onStateChange((deviceId, state) => {
+        const fullId = `tuya:${deviceId}`;
+        this.deviceManager?.updateCache(fullId, state);
+        this.updateHomeKitAccessory(fullId, state);
+      });
+      tuya.start();
+      providers.push(tuya);
     }
 
     if (config.providers?.alexa) {

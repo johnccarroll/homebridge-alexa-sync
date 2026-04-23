@@ -91,4 +91,94 @@ describe('TuyaProvider', () => {
       expect(() => provider.dispose()).not.toThrow();
     });
   });
+
+  describe('MQTT push integration', () => {
+    it('getState returns cached value after discover (no REST call)', async () => {
+      const api = mockApi([LIGHT_DEVICE]);
+      const provider = new TuyaProvider(api);
+      await provider.discover();
+      (api.getDeviceStatus as ReturnType<typeof vi.fn>).mockClear();
+
+      const state = await provider.getState('dev_001');
+      expect(state.on).toBe(true);
+      expect(state.brightness).toBe(50);
+      // Cache hit — no REST call should happen
+      expect(api.getDeviceStatus).not.toHaveBeenCalled();
+    });
+
+    it('MQTT message updates cache + fires listener', async () => {
+      const api = mockApi([LIGHT_DEVICE]);
+      const provider = new TuyaProvider(api);
+      await provider.discover();
+
+      const listener = vi.fn();
+      provider.onStateChange(listener);
+
+      // Simulate an MQTT-delivered status change for a known device
+      (provider as unknown as {
+        onMqMessage: (m: { devId: string; status: Array<{ code: string; value: boolean | number | string }> }) => void;
+      }).onMqMessage({
+        devId: 'dev_001',
+        status: [{ code: 'switch_led', value: false }],
+      });
+
+      expect(listener).toHaveBeenCalledOnce();
+      expect(listener.mock.calls[0][0]).toBe('dev_001');
+      expect(listener.mock.calls[0][1].on).toBe(false);
+
+      // Cache should reflect the new state
+      const state = await provider.getState('dev_001');
+      expect(state.on).toBe(false);
+      // Previous fields preserved via merge
+      expect(state.brightness).toBe(50);
+    });
+
+    it('ignores MQTT messages for unknown devices', async () => {
+      const api = mockApi([LIGHT_DEVICE]);
+      const provider = new TuyaProvider(api);
+      await provider.discover();
+
+      const listener = vi.fn();
+      provider.onStateChange(listener);
+
+      (provider as unknown as {
+        onMqMessage: (m: { devId: string; status: Array<{ code: string; value: boolean | number | string }> }) => void;
+      }).onMqMessage({
+        devId: 'not_in_my_bridge',
+        status: [{ code: 'switch_led', value: true }],
+      });
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('onStateChange returns an unsubscribe function', async () => {
+      const api = mockApi([LIGHT_DEVICE]);
+      const provider = new TuyaProvider(api);
+      await provider.discover();
+
+      const listener = vi.fn();
+      const unsubscribe = provider.onStateChange(listener);
+      unsubscribe();
+
+      (provider as unknown as {
+        onMqMessage: (m: { devId: string; status: Array<{ code: string; value: boolean | number | string }> }) => void;
+      }).onMqMessage({
+        devId: 'dev_001',
+        status: [{ code: 'switch_led', value: false }],
+      });
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('setState optimistically updates cache', async () => {
+      const api = mockApi([LIGHT_DEVICE]);
+      const provider = new TuyaProvider(api);
+      await provider.discover();
+
+      await provider.setState('dev_001', { on: false });
+      // Without hitting MQTT/REST again, cache should reflect the optimistic update
+      const state = await provider.getState('dev_001');
+      expect(state.on).toBe(false);
+    });
+  });
 });

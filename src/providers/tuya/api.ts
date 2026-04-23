@@ -14,6 +14,16 @@ export interface TuyaDevice {
   status: Array<{ code: string; value: boolean | number | string }>;
 }
 
+export interface MqConfig {
+  url: string;
+  client_id: string;
+  username: string;
+  password: string;
+  expire_time: number;
+  source_topic: { device: string };
+  sink_topic?: { device: string };
+}
+
 interface TuyaApiConfig {
   accessId: string;
   accessKey: string;
@@ -118,6 +128,25 @@ export class TuyaApi {
   async sendCommands(deviceId: string, commands: TuyaCommand[]): Promise<void> {
     await this.ensureToken();
     await this.request('POST', `/v1.0/devices/${deviceId}/commands`, JSON.stringify({ commands }));
+  }
+
+  /**
+   * Fetch ephemeral MQTT broker credentials for push-based state updates.
+   * Same open-hub pattern used by tuya-homebridge + Home Assistant's Tuya
+   * integration. Credentials expire every ~2 hours; caller must reconnect
+   * on `expire_time - 60` seconds.
+   */
+  async getMessageQueueConfig(linkId: string, msgEncryptedVersion: '1.0' | '2.0' = '2.0'): Promise<MqConfig> {
+    await this.ensureToken();
+    return this.request('POST', '/v1.0/iot-03/open-hub/access-config',
+      JSON.stringify({
+        uid: this.uid,
+        link_id: linkId,
+        link_type: 'mqtt',
+        topics: 'device',
+        msg_encrypted_version: msgEncryptedVersion,
+      }),
+    );
   }
 
   private async ensureToken(): Promise<void> {
