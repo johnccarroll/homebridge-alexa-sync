@@ -22,6 +22,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { configureAccessory, updateAccessoryState } from './accessory.js';
 import { ApiServer } from './api-server.js';
 import { loadSupporterState, type SupporterState } from './supporter/index.js';
+import { CloudClient } from './cloud/client.js';
+import { StateChangePublisher } from './cloud/state-change.js';
+import { loadOrCreateInstallId } from './cloud/install-id.js';
 
 export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
@@ -32,6 +35,8 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   private pollTimer?: ReturnType<typeof setInterval>;
   private apiServer?: ApiServer;
   private supporter: SupporterState = { mode: 'free' };
+  private cloudClient?: CloudClient;
+  private stateChangePublisher?: StateChangePublisher;
 
   constructor(
     public readonly log: Logging,
@@ -54,6 +59,8 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
       if (this.pollTimer) clearInterval(this.pollTimer);
       this.deviceManager?.dispose();
       this.apiServer?.stop();
+      void this.cloudClient?.stop();
+      this.stateChangePublisher?.dispose();
     });
   }
 
@@ -74,6 +81,32 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
     this.deviceManager = new DeviceManager(providers);
     await this.discoverAndRegister();
     this.startPolling(pluginConfig);
+
+    // Supporter tier: connect to the cloud for managed Alexa Smart Home
+    // Skill routing. The plugin works fully locally without this; the
+    // cloud connection is opt-in via a valid supporter JWT.
+    if (this.supporter.mode === 'supporter' && pluginConfig.supporter?.token) {
+      try {
+        const installId = loadOrCreateInstallId(this.api.user.storagePath());
+        this.cloudClient = new CloudClient({
+          supporterToken: pluginConfig.supporter.token,
+          installId,
+          deviceManager: this.deviceManager,
+          log: this.log,
+        });
+        await this.cloudClient.start();
+        this.stateChangePublisher = new StateChangePublisher({
+          supporterToken: pluginConfig.supporter.token,
+          log: this.log,
+        });
+        this.deviceManager.onStateChange((deviceId, state) => {
+          this.stateChangePublisher?.publish(deviceId, state);
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log.warn(`Cloud client failed to start: ${msg}. Running in local-only mode.`);
+      }
+    }
 
     // Start API server for Alexa Smart Home Skill
     if (pluginConfig.alexaSkill?.enabled && pluginConfig.alexaSkill?.apiKey) {

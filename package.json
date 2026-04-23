@@ -49,6 +49,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
     "alexa-remote2": "^8.0.4",
     "ws": "^8.20.0"
   }
