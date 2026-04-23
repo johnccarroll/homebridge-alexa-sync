@@ -138,6 +138,7 @@ export class TuyaOpenMQ {
           done();
         });
         client.on('message', (topic, payload) => {
+          this.log.info(`TuyaMQ raw message on topic=${topic} (${payload.length} bytes)`);
           if (topic !== this.deviceTopic) return;
           try {
             this.handleMessage(payload, config.password);
@@ -173,6 +174,7 @@ export class TuyaOpenMQ {
     const envelope = JSON.parse(payload.toString()) as { data: string; t: number };
     const decrypted = this.decrypt(envelope.data, password, envelope.t);
     const msg = JSON.parse(decrypted) as MqMessage;
+    this.log.info(`TuyaMQ decoded: devId=${msg.devId} bizCode=${msg.bizCode ?? '-'} status=${JSON.stringify(msg.status ?? [])}`);
     for (const listener of this.listeners) {
       try {
         listener(msg);
