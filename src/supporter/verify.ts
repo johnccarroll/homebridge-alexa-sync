@@ -1,14 +1,15 @@
 // Offline verification of supporter-license JWTs issued by
-// sponsors.hb-alexa.dev. The plugin embeds the issuer's Ed25519 public
+// cloud.johncarroll.dev. The plugin embeds the issuer's Ed25519 public
 // key and verifies the signature + claims with zero network calls —
-// this is what keeps the plugin under Homebridge Verified's "no tracking"
-// rule (see Ship to npm plan notes).
+// this is what keeps the plugin under Homebridge Verified's "no
+// tracking" rule (see the Ship-to-npm plan).
 //
 // The JWT is a standard EdDSA-signed JWT (alg = "EdDSA"). Claims:
-//   iss   "https://sponsors.hb-alexa.dev"
-//   sub   "github:<login>"
-//   tier  monthly sponsor tier in US dollars
-//   iat, exp  standard timestamps
+//   iss      "https://cloud.johncarroll.dev"
+//   project  "homebridge-alexa-bridge"   (so tokens scoped per-project)
+//   sub      "github:<login>"
+//   tier     monthly sponsor tier in US dollars
+//   iat, exp standard timestamps
 //
 // Key rotation: if the issuer ever rotates the signing key, the plugin
 // ships a new version with the new public key. During a rotation window
@@ -16,18 +17,20 @@
 
 import { createPublicKey, verify as verifyRaw } from 'node:crypto';
 
-// Ed25519 public key paired with the Worker's signing key at
-// sponsors.hb-alexa.dev. Safe to publish. Generated 2026-04-21.
+// Ed25519 public key paired with the issuer's signing key at
+// cloud.johncarroll.dev. Safe to publish. Generated 2026-04-21.
 const ISSUER_PUBLIC_KEY_JWK = {
   kty: 'OKP',
   crv: 'Ed25519',
   x: 'SdFPD9o7GOGJKR0feuj3bMzxuJvUcN7elXSS5DvonAk',
 } as const;
 
-const EXPECTED_ISSUER = 'https://hb.johncarroll.dev';
+const EXPECTED_ISSUER = 'https://cloud.johncarroll.dev';
+const EXPECTED_PROJECT = 'homebridge-alexa-bridge';
 
 export interface SupporterClaims {
   iss: string;
+  project: string;
   sub: string;
   tier: number;
   iat: number;
@@ -68,6 +71,9 @@ export function verifySupporterToken(token: string): VerifyResult {
 
   if (claims.iss !== EXPECTED_ISSUER) {
     return { ok: false, reason: `wrong issuer: ${claims.iss}` };
+  }
+  if (claims.project !== EXPECTED_PROJECT) {
+    return { ok: false, reason: `wrong project: ${claims.project}` };
   }
 
   const now = Math.floor(Date.now() / 1000);

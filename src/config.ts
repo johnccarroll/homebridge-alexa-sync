@@ -31,7 +31,7 @@ export interface AlexaSkillConfig {
 }
 
 export interface SupporterConfig {
-  /** JWT issued by sponsors.hb-alexa.dev after a GitHub Sponsors check.
+  /** JWT issued by cloud.johncarroll.dev after a GitHub Sponsors check.
    *  Verified offline with an embedded Ed25519 public key — the plugin
    *  makes no network call to verify. Absence of this field (or verification
    *  failure) = free mode with full plugin functionality. */

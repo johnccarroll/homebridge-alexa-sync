@@ -31,7 +31,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
   private deviceManager?: DeviceManager;
   private pollTimer?: ReturnType<typeof setInterval>;
   private apiServer?: ApiServer;
-  private supporter: SupporterState = { mode: 'trial', devicesAllowed: true };
+  private supporter: SupporterState = { mode: 'free' };
 
   constructor(
     public readonly log: Logging,
@@ -63,20 +63,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
 
   private async init(): Promise<void> {
     const pluginConfig = this.config as unknown as PluginConfig;
-    this.supporter = loadSupporterState(
-      pluginConfig.supporter,
-      this.api.user.storagePath(),
-      PLUGIN_VERSION,
-      this.log,
-    );
-
-    if (!this.supporter.devicesAllowed) {
-      // Trial expired without a supporter token. The plugin still loads,
-      // but we skip provider init + device registration entirely. A prominent
-      // CTA was already logged by loadSupporterState.
-      return;
-    }
-
+    this.supporter = loadSupporterState(pluginConfig.supporter, this.log);
     const providers = await this.createProviders(pluginConfig);
 
     if (providers.length === 0) {

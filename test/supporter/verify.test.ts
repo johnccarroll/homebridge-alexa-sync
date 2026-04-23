@@ -55,7 +55,8 @@ describe('verifySupporterToken', () => {
     const payloadB64 = b64url(
       Buffer.from(
         JSON.stringify({
-          iss: 'https://sponsors.hb-alexa.dev',
+          iss: 'https://cloud.johncarroll.dev',
+          project: 'homebridge-alexa-bridge',
           sub: 'github:test',
           tier: 5,
           iat: Math.floor(Date.now() / 1000),
@@ -82,7 +83,8 @@ describe('verifySupporterToken', () => {
     it('accepts a valid token', () => {
       const t = makeToken(
         {
-          iss: 'https://sponsors.hb-alexa.dev',
+          iss: 'https://cloud.johncarroll.dev',
+          project: 'homebridge-alexa-bridge',
           sub: 'github:testuser',
           tier: 5,
           iat: now(),
@@ -101,7 +103,8 @@ describe('verifySupporterToken', () => {
     it('rejects an expired token', () => {
       const t = makeToken(
         {
-          iss: 'https://sponsors.hb-alexa.dev',
+          iss: 'https://cloud.johncarroll.dev',
+          project: 'homebridge-alexa-bridge',
           sub: 'github:testuser',
           tier: 5,
           iat: now() - 7200,
@@ -118,6 +121,7 @@ describe('verifySupporterToken', () => {
       const t = makeToken(
         {
           iss: 'https://evil.example.com',
+          project: 'homebridge-alexa-bridge',
           sub: 'github:testuser',
           tier: 5,
           iat: now(),
@@ -133,7 +137,8 @@ describe('verifySupporterToken', () => {
     it('rejects an invalid sub claim', () => {
       const t = makeToken(
         {
-          iss: 'https://sponsors.hb-alexa.dev',
+          iss: 'https://cloud.johncarroll.dev',
+          project: 'homebridge-alexa-bridge',
           sub: 'something:else',
           tier: 5,
           iat: now(),
