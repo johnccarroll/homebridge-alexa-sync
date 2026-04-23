@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/ws": "^8.18.1",
     "homebridge": "^2.0.0-beta.89",
     "rimraf": "^6.0.0",
     "typescript": "^5.7.0",
@@ -49,6 +50,6 @@
   },
   "dependencies": {
     "alexa-remote2": "^8.0.4",
-    "mqtt": "^5.15.1"
+    "ws": "^8.20.0"
   }
 }

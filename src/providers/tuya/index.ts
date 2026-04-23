@@ -2,7 +2,7 @@ import type { DeviceProvider } from '../provider.js';
 import type { BridgeDevice, DeviceState } from '../../types.js';
 import { TuyaApi } from './api.js';
 import { tuyaDeviceToBridgeDevice, tuyaStatusToState, stateToTuyaCommands } from './mapper.js';
-import { TuyaOpenMQ, type MqMessage, type TuyaMqLogger } from './mqtt.js';
+import { TuyaPulsarConsumer, type MqMessage, type TuyaMqLogger } from './pulsar.js';
 import type { TuyaConfig } from '../../config.js';
 
 export type TuyaStateChangeListener = (deviceId: string, state: DeviceState) => void;
@@ -21,7 +21,7 @@ export type TuyaStateChangeListener = (deviceId: string, state: DeviceState) => 
 export class TuyaProvider implements DeviceProvider {
   readonly id = 'tuya';
   private readonly api: TuyaApi;
-  private readonly mq?: TuyaOpenMQ;
+  private readonly mq?: TuyaPulsarConsumer;
 
   private readonly stateCache = new Map<string, DeviceState>();
   private readonly listeners = new Set<TuyaStateChangeListener>();
@@ -29,12 +29,12 @@ export class TuyaProvider implements DeviceProvider {
   constructor(apiOrConfig: TuyaApi | TuyaConfig, log?: TuyaMqLogger) {
     if ('getDevices' in apiOrConfig && typeof (apiOrConfig as TuyaApi).getDevices === 'function') {
       this.api = apiOrConfig as TuyaApi;
-      // Test path: no accessKey, no MQTT.
+      // Test path: no accessKey, no Pulsar.
     } else {
       const cfg = apiOrConfig as TuyaConfig;
       this.api = new TuyaApi(cfg);
       if (cfg.accessKey && log) {
-        this.mq = new TuyaOpenMQ(this.api, cfg.accessKey, log);
+        this.mq = new TuyaPulsarConsumer(cfg.accessId, cfg.accessKey, cfg.region, log);
       }
     }
   }
