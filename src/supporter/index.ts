@@ -9,7 +9,7 @@ export interface SupporterState {
   claims?: SupporterClaims;
 }
 
-const LICENSE_URL = 'https://cloud.johncarroll.dev/homebridge-alexa-bridge';
+const LICENSE_URL = 'https://cloud.johncarroll.dev/switchboard';
 
 /** Inspect the plugin's `supporter` config block, verify the JWT offline,
  *  and log the outcome. Returns a small state object; the plugin always

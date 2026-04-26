@@ -56,7 +56,7 @@ describe('verifySupporterToken', () => {
       Buffer.from(
         JSON.stringify({
           iss: 'https://cloud.johncarroll.dev',
-          project: 'homebridge-alexa-bridge',
+          project: 'switchboard',
           sub: 'github:test',
           tier: 5,
           iat: Math.floor(Date.now() / 1000),
@@ -84,7 +84,7 @@ describe('verifySupporterToken', () => {
       const t = makeToken(
         {
           iss: 'https://cloud.johncarroll.dev',
-          project: 'homebridge-alexa-bridge',
+          project: 'switchboard',
           sub: 'github:testuser',
           tier: 5,
           iat: now(),
@@ -104,7 +104,7 @@ describe('verifySupporterToken', () => {
       const t = makeToken(
         {
           iss: 'https://cloud.johncarroll.dev',
-          project: 'homebridge-alexa-bridge',
+          project: 'switchboard',
           sub: 'github:testuser',
           tier: 5,
           iat: now() - 7200,
@@ -121,7 +121,7 @@ describe('verifySupporterToken', () => {
       const t = makeToken(
         {
           iss: 'https://evil.example.com',
-          project: 'homebridge-alexa-bridge',
+          project: 'switchboard',
           sub: 'github:testuser',
           tier: 5,
           iat: now(),
@@ -138,7 +138,7 @@ describe('verifySupporterToken', () => {
       const t = makeToken(
         {
           iss: 'https://cloud.johncarroll.dev',
-          project: 'homebridge-alexa-bridge',
+          project: 'switchboard',
           sub: 'something:else',
           tier: 5,
           iat: now(),

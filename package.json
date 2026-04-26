@@ -1,8 +1,8 @@
 {
-  "name": "homebridge-alexa-bridge",
-  "displayName": "Alexa Bridge",
+  "name": "homebridge-alexa-sync",
+  "displayName": "Alexa Sync",
   "version": "0.1.0",
-  "description": "Two-way bridge between Homebridge and Alexa with provider-based device support",
+  "description": "Two-way Homebridge ↔ Alexa sync. Bidirectional state mirroring with provider-based device support (Tuya, Alexa cookie, Resideo). Part of the Switchboard smart-home family.",
   "type": "module",
   "main": "dist/index.js",
   "files": [
@@ -16,20 +16,22 @@
     "homebridge-plugin",
     "alexa",
     "tuya",
+    "resideo",
     "smart-home",
     "homekit",
-    "smart-home-bridge"
+    "two-way",
+    "switchboard"
   ],
   "author": "John Carroll (@johnccarroll)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/johnccarroll/homebridge-alexa-bridge.git"
+    "url": "https://github.com/johnccarroll/homebridge-alexa-sync.git"
   },
   "bugs": {
-    "url": "https://github.com/johnccarroll/homebridge-alexa-bridge/issues"
+    "url": "https://github.com/johnccarroll/homebridge-alexa-sync/issues"
   },
-  "homepage": "https://github.com/johnccarroll/homebridge-alexa-bridge#readme",
+  "homepage": "https://github.com/johnccarroll/homebridge-alexa-sync#readme",
   "engines": {
     "node": "^18.20.4 || ^20.15.1 || ^22 || ^24",
     "homebridge": "^1.8.0 || ^2.0.0-beta.0"

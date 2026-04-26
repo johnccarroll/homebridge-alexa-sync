@@ -17,7 +17,7 @@ import { handleAlexaDirective } from '../alexa-skill/handler.js';
 
 const SUPABASE_URL = 'https://wvbsupxcrukpolkiuzll.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_zmdqf4VfmVQIhdtscordIQ_T8UaW5-R';
-const PROJECT_ID = 'homebridge-alexa-bridge';
+const PROJECT_ID = 'switchboard';
 
 interface DirectiveRow {
   id: string;

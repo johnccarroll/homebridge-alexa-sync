@@ -6,7 +6,9 @@
 //
 // The JWT is a standard EdDSA-signed JWT (alg = "EdDSA"). Claims:
 //   iss      "https://cloud.johncarroll.dev"
-//   project  "homebridge-alexa-bridge"   (so tokens scoped per-project)
+//   project  "switchboard"   (umbrella product — single sponsor tier
+//                            unlocks every plugin under the Switchboard
+//                            smart-home family)
 //   sub      "github:<login>"
 //   tier     monthly sponsor tier in US dollars
 //   iat, exp standard timestamps
@@ -26,7 +28,7 @@ const ISSUER_PUBLIC_KEY_JWK = {
 } as const;
 
 const EXPECTED_ISSUER = 'https://cloud.johncarroll.dev';
-const EXPECTED_PROJECT = 'homebridge-alexa-bridge';
+const EXPECTED_PROJECT = 'switchboard';
 
 export interface SupporterClaims {
   iss: string;

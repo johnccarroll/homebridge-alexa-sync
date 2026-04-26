@@ -9,7 +9,7 @@ import type { Logger } from 'homebridge';
 
 import type { DeviceState } from '../types.js';
 
-const STATE_CHANGE_URL = 'https://cloud.johncarroll.dev/homebridge-alexa-bridge/alexa/state-change';
+const STATE_CHANGE_URL = 'https://cloud.johncarroll.dev/switchboard/alexa/state-change';
 const COALESCE_MS = 500;
 
 export class StateChangePublisher {

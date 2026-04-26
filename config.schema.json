@@ -1,5 +1,5 @@
 {
-  "pluginAlias": "AlexaBridge",
+  "pluginAlias": "AlexaSync",
   "pluginType": "platform",
   "singular": true,
   "schema": {
@@ -23,8 +23,8 @@
         }
       },
       "supporter": {
-        "title": "Supporter License",
-        "description": "The plugin runs free for 14 days. To keep controlling devices after the trial, sponsor at github.com/sponsors/johnccarroll ($3/mo, cancel anytime), then get a token at https://hb.johncarroll.dev and paste it below. Verified offline against an embedded public key — the plugin never sends your email or any other data to an external server.",
+        "title": "Switchboard Supporter License (optional)",
+        "description": "The plugin is fully free locally. A Switchboard supporter license unlocks the optional managed cloud features — Alexa Smart Home Skill voice control without you setting up your own AWS Lambda. Sponsor at github.com/sponsors/johnccarroll ($3/mo, cancel anytime), then get your token at https://cloud.johncarroll.dev/switchboard and paste it below. Verified offline against an embedded public key — the plugin never sends your email or device data to any external server.",
         "type": "object",
         "properties": {
           "token": {
