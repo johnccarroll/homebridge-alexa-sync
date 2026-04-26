@@ -4,8 +4,9 @@ dist/
 *.tgz
 
 # runtime state (never commit — these hold auth material)
-.alexa-bridge-cookie.json
-.alexa-bridge-lwa-tokens.json
+.alexa-sync-cookie.json
+.alexa-sync-lwa-tokens.json
+.alexa-sync-install-id
 *.cookie.json
 *.tokens.json
 

@@ -26,7 +26,7 @@ import { CloudClient } from './cloud/client.js';
 import { StateChangePublisher } from './cloud/state-change.js';
 import { loadOrCreateInstallId } from './cloud/install-id.js';
 
-export class AlexaBridgePlatform implements DynamicPlatformPlugin {
+export class AlexaSyncPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
   public readonly Characteristic: typeof Characteristic;
 
@@ -122,7 +122,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
         );
 
         // Restore tokens from persistence
-        const tokenPath = `${this.api.user.storagePath()}/.alexa-bridge-lwa-tokens.json`;
+        const tokenPath = `${this.api.user.storagePath()}/.alexa-sync-lwa-tokens.json`;
         try {
           const data = readFileSync(tokenPath, 'utf8');
           stateReporter.restoreTokens(JSON.parse(data));
@@ -210,7 +210,7 @@ export class AlexaBridgePlatform implements DynamicPlatformPlugin {
         warnLogger: (msg: string) => this.log.warn(msg),
       });
 
-      const cookiePath = `${this.api.user.storagePath()}/.alexa-bridge-cookie.json`;
+      const cookiePath = `${this.api.user.storagePath()}/.alexa-sync-cookie.json`;
       const amazonDomain = config.providers.alexa.amazonDomain ?? 'amazon.com';
       let storedCookie: any;
       try {

@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
-const FILE_NAME = '.alexa-bridge-install-id';
+const FILE_NAME = '.alexa-sync-install-id';
 
 export function loadOrCreateInstallId(storagePath: string): string {
   const path = join(storagePath, FILE_NAME);

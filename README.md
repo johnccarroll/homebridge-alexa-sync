@@ -64,7 +64,7 @@ For devices only controllable through Alexa (e.g. Sengled Zigbee bulbs paired di
 2. Start Homebridge — it logs a URL like `http://homebridge.local:3456/`
 3. Open that URL in your browser, log in with your Amazon account
 4. Cookie is saved automatically. Restart Homebridge to discover devices.
-5. Cookie auto-refreshes every 4 days. If auth fails, delete `.alexa-bridge-cookie.json` from your Homebridge storage directory and re-login.
+5. Cookie auto-refreshes every 4 days. If auth fails, delete `.alexa-sync-cookie.json` from your Homebridge storage directory and re-login.
 
 ### Resideo / Honeywell Home
 
