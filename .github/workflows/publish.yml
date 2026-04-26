@@ -1,0 +1,37 @@
+name: Publish to npm
+# Trusted Publishing: npmjs.com trusts this workflow via GitHub OIDC, no token stored.
+# Tag a release with `git tag v0.1.1 && git push --tags` to fire.
+#
+# One-time setup at npmjs.com:
+#   1. Go to https://www.npmjs.com/package/homebridge-alexa-sync/access
+#   2. Settings → "Publishing access" → Trusted Publisher
+#   3. Provider: GitHub Actions
+#   4. Organization or user: johnccarroll
+#   5. Repository: homebridge-alexa-sync
+#   6. Workflow filename: publish.yml
+#   7. Environment name: (blank)
+#
+# After that, this workflow publishes signed packages with provenance on tag push.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write  # required for OIDC trusted publishing + --provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci || npm install
+      - run: npm test
+      - run: npm run build
+      - run: npm publish --access public --provenance
