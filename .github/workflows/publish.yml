@@ -43,5 +43,18 @@ jobs:
       - run: npm ci || npm install
       - run: npm test
       - run: npm run build
+      # Skip if the package.json version is already on npm (idempotent re-tags).
+      - name: Check version uniqueness
+        id: version-check
+        run: |
+          local_v=$(node -p "require('./package.json').version")
+          published=$(npm view homebridge-alexa-sync@$local_v version 2>/dev/null || echo "")
+          if [ "$published" = "$local_v" ]; then
+            echo "Version $local_v already on npm. Skipping publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish
+        if: steps.version-check.outputs.skip != 'true'
         run: npm publish --access public --provenance ${{ inputs.dry_run && '--dry-run' || '' }}
