@@ -17,6 +17,15 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual trigger for verifying Trusted Publishing setup without a real release.
+  # Pick `dry_run: true` from the GitHub UI to authenticate via OIDC and stop
+  # before npm registry mutation.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Skip the actual publish (verify OIDC auth only)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -34,4 +43,5 @@ jobs:
       - run: npm ci || npm install
       - run: npm test
       - run: npm run build
-      - run: npm publish --access public --provenance
+      - name: Publish
+        run: npm publish --access public --provenance ${{ inputs.dry_run && '--dry-run' || '' }}
