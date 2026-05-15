@@ -131,6 +131,21 @@ export class TuyaApi {
   }
 
   /**
+   * Factory-info bulk fetch — returns the per-device `local_key` plus
+   * identifiers (uuid, sn, mac). The local key is required to talk to a
+   * device on the LAN without going through the cloud. Pulled once during
+   * a working cloud trial; persisted thereafter so cloud expiry doesn't
+   * matter.
+   */
+  async getFactoryInfos(deviceIds: string[]): Promise<Array<{ id: string; local_key: string; uuid?: string; sn?: string; mac?: string }>> {
+    await this.ensureToken();
+    return this.request(
+      'GET',
+      `/v1.0/iot-03/devices/factory-infos?device_ids=${deviceIds.join(',')}`,
+    );
+  }
+
+  /**
    * Fetch ephemeral MQTT broker credentials for push-based state updates.
    * Same open-hub pattern used by tuya-homebridge + Home Assistant's Tuya
    * integration. Credentials expire every ~2 hours; caller must reconnect

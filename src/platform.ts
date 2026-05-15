@@ -15,6 +15,7 @@ import { validateConfig } from './config.js';
 import { DeviceManager } from './device-manager.js';
 import type { DeviceProvider } from './providers/provider.js';
 import { TuyaProvider } from './providers/tuya/index.js';
+import { TuyaLocalProvider, type LocalTuyaDeviceConfig } from './providers/tuya/local.js';
 import { AlexaProvider } from './providers/alexa/index.js';
 import { ResideoProvider } from './providers/resideo/index.js';
 import { AlexaClient } from './providers/alexa/client.js';
@@ -179,25 +180,45 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
     });
   }
 
+  private loadLocalTuyaDevices(): LocalTuyaDeviceConfig[] | null {
+    const path = `${this.api.user.storagePath()}/tuya-local.json`;
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as LocalTuyaDeviceConfig[];
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
   private async createProviders(config: PluginConfig): Promise<DeviceProvider[]> {
     const providers: DeviceProvider[] = [];
 
     if (config.providers?.tuya) {
-      this.log.info('Initializing Tuya provider');
-      const tuya = new TuyaProvider(config.providers.tuya, {
-        info: (m: string) => this.log.info(m),
-        warn: (m: string) => this.log.warn(m),
-        debug: (m: string) => this.log.debug(m),
-      });
-      // Propagate MQTT-pushed state changes to DeviceManager so accessories
-      // and proactive reporters update in real time (no polling lag).
-      tuya.onStateChange((deviceId, state) => {
-        const fullId = `tuya:${deviceId}`;
-        this.deviceManager?.updateCache(fullId, state);
-        this.updateHomeKitAccessory(fullId, state);
-      });
-      tuya.start();
-      providers.push(tuya);
+      const localDevices = this.loadLocalTuyaDevices();
+      if (localDevices) {
+        this.log.info(`Initializing Tuya provider (LAN, ${localDevices.length} devices)`);
+        providers.push(new TuyaLocalProvider(localDevices, {
+          warn: (m: string) => this.log.warn(m),
+          debug: (m: string) => this.log.debug(m),
+        }));
+      } else {
+        this.log.info('Initializing Tuya provider (cloud)');
+        const tuya = new TuyaProvider(config.providers.tuya, {
+          info: (m: string) => this.log.info(m),
+          warn: (m: string) => this.log.warn(m),
+          debug: (m: string) => this.log.debug(m),
+        });
+        // Propagate MQTT-pushed state changes to DeviceManager so accessories
+        // and proactive reporters update in real time (no polling lag).
+        tuya.onStateChange((deviceId, state) => {
+          const fullId = `tuya:${deviceId}`;
+          this.deviceManager?.updateCache(fullId, state);
+          this.updateHomeKitAccessory(fullId, state);
+        });
+        tuya.start();
+        providers.push(tuya);
+      }
     }
 
     if (config.providers?.alexa) {

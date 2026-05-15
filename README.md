@@ -56,6 +56,26 @@ The plugin is **fully free locally**. Voice control via Alexa is optional — se
 | `region` | `us`, `eu`, `cn`, or `in` | `us` |
 | `pollInterval` | State poll fallback (seconds); ignored when Pulsar push works | `30` |
 
+#### LAN mode (recommended — survives cloud trial expiry)
+
+Tuya's IoT Core trial is 6 months at a time. Once it expires, the cloud API returns `No permissions. Your subscription to cloud development plan has expired.` and the plugin loses control of every Tuya device. To insulate yourself, extract each device's local key once while the cloud is alive, then talk to devices directly on your LAN going forward.
+
+```bash
+# On a machine with this repo checked out; cloud must be active.
+TUYA_ACCESS_ID=xxx TUYA_ACCESS_KEY=yyy TUYA_REGION=us \
+  node scripts/extract-tuya-keys.mjs > tuya-local.json
+
+# Copy to the Homebridge storage path on the Pi.
+scp tuya-local.json pi@homebridge.local:/var/lib/homebridge/tuya-local.json
+```
+
+Restart Homebridge. The log will say `Initializing Tuya provider (LAN, N devices)` and the plugin will use the direct LAN protocol via [`tuyapi`](https://github.com/codetheweb/tuyapi) instead of the cloud. Re-run the extraction script whenever you add new Tuya devices.
+
+**Limitations of first-pass LAN mode (subject to change):**
+- Assumes the standard Tuya light DPS layout (`1`=switch, `2`=mode, `3`=brightness, `4`=temp, `5`=color). Most cloud-provisioned bulbs use this — odd devices may need a custom map.
+- No Pulsar push — state polling only (`pollInterval` still applies).
+- Device IP is auto-discovered on first connect; if your LAN has multicast issues you can pin an `ip` per device in `tuya-local.json`.
+
 ### Alexa (cookie-based fallback)
 
 For devices only controllable through Alexa (e.g. Sengled Zigbee bulbs paired directly to Echo). If all your devices already work via Tuya or Resideo, leave this provider disabled.
