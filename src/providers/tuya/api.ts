@@ -193,6 +193,7 @@ export class TuyaApi {
       method,
       headers,
       body: body || undefined,
+      signal: AbortSignal.timeout(5000),
     });
 
     const json = await response.json() as { success: boolean; result: T; code?: number; msg?: string };

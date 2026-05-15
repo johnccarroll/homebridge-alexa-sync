@@ -10,6 +10,8 @@ type GetState = (deviceId: string) => Promise<DeviceState>;
 type GetCachedState = (deviceId: string) => DeviceState | undefined;
 type SetState = (deviceId: string, state: Partial<DeviceState>) => Promise<void>;
 
+const FAST_GET_TIMEOUT_MS = 3500;
+
 function kelvinToMired(kelvin: number): number {
   return Math.round(1_000_000 / kelvin);
 }
@@ -39,10 +41,20 @@ export function configureAccessory(
   // Prefer cached state (instant) over live API calls to avoid "slow to respond" warnings.
   // The polling loop keeps the cache warm; onGet handlers return cached values immediately.
   // Falls back to a live API call only if cache is empty (e.g. first read before first poll).
+  // HAP soft-warns at 3s and cancels at 9s — bound below the cancel deadline so a hung
+  // provider can't produce "didn't respond at all". A "slow to respond" warning on the cold
+  // fallback path is acceptable; the alternative (returning defaults sooner) would hide real
+  // device data when the live call would have eventually succeeded.
   const fastGetState = (id: string): Promise<DeviceState> => {
     const cached = getCachedState?.(id);
     if (cached) return Promise.resolve(cached);
-    return getState(id).catch(() => ({} as DeviceState));
+    const live = getState(id).catch(() => ({} as DeviceState));
+    return Promise.race([
+      live,
+      new Promise<DeviceState>(resolve =>
+        setTimeout(() => resolve({} as DeviceState), FAST_GET_TIMEOUT_MS),
+      ),
+    ]);
   };
 
   if (device.type === 'light') {

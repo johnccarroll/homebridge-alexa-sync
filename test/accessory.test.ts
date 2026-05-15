@@ -102,4 +102,36 @@ describe('configureAccessory', () => {
     expect(charNames).not.toContain('Brightness');
     expect(charNames).not.toContain('Hue');
   });
+
+  it('onGet resolves before HAP deadline even when getState hangs forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const accessory = createMockAccessory();
+      const hung = new Promise<never>(() => { /* never settles */ });
+      const getState = vi.fn().mockReturnValue(hung);
+      const setState = vi.fn().mockResolvedValue(undefined);
+
+      configureAccessory(
+        accessory as any,
+        LIGHT,
+        { Service, Characteristic } as any,
+        getState,
+        setState,
+        // no getCachedState → forces slow path
+      );
+
+      const service = accessory.addService.mock.results[0].value;
+      const onGetHandler = service.getCharacteristic('Brightness').onGet.mock.calls[0][0];
+
+      const pending = onGetHandler();
+      await vi.advanceTimersByTimeAsync(4000);
+      const result = await pending;
+
+      // Falls back to the default in the handler: `state.brightness ?? 100`
+      expect(result).toBe(100);
+      expect(getState).toHaveBeenCalledWith(LIGHT.id);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
