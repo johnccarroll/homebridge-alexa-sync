@@ -6,30 +6,40 @@ interface CacheEntry {
   timestamp: number;
 }
 
+export interface DiscoveryLogger {
+  warn(message: string): void;
+}
+
 export class DeviceManager {
   private readonly providers: Map<string, DeviceProvider>;
   private readonly devices = new Map<string, BridgeDevice>();
   private readonly stateCache = new Map<string, CacheEntry>();
   private readonly cacheTtlMs: number;
+  private readonly log?: DiscoveryLogger;
   private onChangeCallback?: (deviceId: string, state: DeviceState) => void;
 
-  constructor(providers: DeviceProvider[], cacheTtlMs = 30_000) {
+  constructor(providers: DeviceProvider[], cacheTtlMs = 30_000, log?: DiscoveryLogger) {
     this.providers = new Map(providers.map(p => [p.id, p]));
     this.cacheTtlMs = cacheTtlMs;
+    this.log = log;
   }
 
   async discoverAll(): Promise<BridgeDevice[]> {
     this.devices.clear();
 
-    const results = await Promise.allSettled(
-      [...this.providers.values()].map(p => p.discover()),
-    );
+    const providerList = [...this.providers.values()];
+    const results = await Promise.allSettled(providerList.map(p => p.discover()));
 
-    // Collect all discovered devices
+    // Collect all discovered devices; surface rejections so silent provider
+    // failures (expired creds, network blips) don't masquerade as "0 devices".
     const allDevices: BridgeDevice[] = [];
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.status === 'fulfilled') {
         allDevices.push(...result.value);
+      } else {
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        this.log?.warn(`Provider "${providerList[i].id}" discovery failed: ${reason}`);
       }
     }
 

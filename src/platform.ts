@@ -78,7 +78,9 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
       return;
     }
 
-    this.deviceManager = new DeviceManager(providers);
+    this.deviceManager = new DeviceManager(providers, undefined, {
+      warn: (msg) => this.log.warn(msg),
+    });
     await this.discoverAndRegister();
     this.startPolling(pluginConfig);
 

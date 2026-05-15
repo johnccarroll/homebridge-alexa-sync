@@ -89,6 +89,28 @@ describe('DeviceManager', () => {
       const devices = await manager.discoverAll();
       expect(devices).toHaveLength(1);
     });
+
+    it('logs provider discovery rejections via injected logger', async () => {
+      const broken: DeviceProvider = {
+        id: 'tuya',
+        discover: vi.fn().mockRejectedValue(
+          new Error('Your subscription to cloud development plan has expired.'),
+        ),
+        getState: vi.fn(),
+        setState: vi.fn(),
+        dispose: vi.fn(),
+      };
+      const warn = vi.fn();
+
+      const manager = new DeviceManager([broken], 30_000, { warn });
+      const devices = await manager.discoverAll();
+
+      expect(devices).toHaveLength(0);
+      expect(warn).toHaveBeenCalledOnce();
+      const msg = warn.mock.calls[0][0] as string;
+      expect(msg).toContain('tuya');
+      expect(msg).toContain('subscription');
+    });
   });
 
   describe('getState', () => {
