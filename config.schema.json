@@ -61,6 +61,7 @@
           },
           "alexa": {
             "title": "Alexa (Cookie-Based Fallback)",
+            "description": "For devices only controllable through Alexa (e.g. Sengled Zigbee paired to Echo). Generate the cookie with alexa-cookie-cli on a desktop with Chrome and drop the JSON at <homebridge-storage>/.alexa-sync-cookie.json — see README. No proxy login from inside the plugin; Amazon keeps breaking that.",
             "type": "object",
             "properties": {
               "amazonDomain": {
@@ -75,8 +76,6 @@
                   { "title": "AU (amazon.com.au)", "enum": ["amazon.com.au"] }
                 ]
               },
-              "proxyHost": { "title": "Proxy Host (IP/hostname for browser login)", "type": "string", "default": "homebridge.local" },
-              "proxyPort": { "title": "Auth Proxy Port", "type": "number", "default": 3456 },
               "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 60 },
               "cookieRefreshDays": { "title": "Cookie Refresh Interval (days)", "type": "number", "default": 4 },
               "deviceTypes": {

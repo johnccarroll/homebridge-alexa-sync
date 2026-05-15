@@ -58,13 +58,24 @@ The plugin is **fully free locally**. Voice control via Alexa is optional — se
 
 ### Alexa (cookie-based fallback)
 
-For devices only controllable through Alexa (e.g. Sengled Zigbee bulbs paired directly to Echo).
+For devices only controllable through Alexa (e.g. Sengled Zigbee bulbs paired directly to Echo). If all your devices already work via Tuya or Resideo, leave this provider disabled.
 
-1. Enable the Alexa provider in config
-2. Start Homebridge — it logs a URL like `http://homebridge.local:3456/`
-3. Open that URL in your browser, log in with your Amazon account
-4. Cookie is saved automatically. Restart Homebridge to discover devices.
-5. Cookie auto-refreshes every 4 days. If auth fails, delete `.alexa-sync-cookie.json` from your Homebridge storage directory and re-login.
+Amazon's login UI changes broke the in-process proxy login that earlier versions used. You now generate the cookie out-of-band with [`alexa-cookie-cli`](https://www.npmjs.com/package/alexa-cookie-cli) (or any tool that drives a real Chrome session) and drop the JSON in place:
+
+1. On a desktop with Chrome installed (your laptop, not the Pi):
+   ```bash
+   npx alexa-cookie-cli --amazonPage amazon.com --output cookie.json
+   ```
+   It opens Chrome — log in with your Amazon account when prompted. The CLI writes a JSON file with the cookies and macDms data alexa-remote2 needs.
+
+2. Copy the JSON into your Homebridge storage path on the Pi:
+   ```bash
+   scp cookie.json pi@homebridge.local:/var/lib/homebridge/.alexa-sync-cookie.json
+   ```
+
+3. Enable the Alexa provider in your Homebridge config (just `{ "amazonDomain": "amazon.com" }` is enough) and restart Homebridge. Alexa devices will be discovered on the next startup.
+
+The plugin auto-refreshes the cookie every 4 days while running, so you only have to repeat this when the refresh chain breaks (Amazon forces a new login, you change your password, etc.).
 
 ### Resideo / Honeywell Home
 

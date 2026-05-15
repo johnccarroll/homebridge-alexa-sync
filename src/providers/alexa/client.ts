@@ -28,8 +28,6 @@ interface AlexaRemoteInstance {
 
 export interface AlexaClientConfig {
   amazonDomain: string;
-  proxyHost?: string;
-  proxyPort: number;
   cookieRefreshDays: number;
   persistPath: string;
   logger?: (msg: string) => void;
@@ -69,17 +67,19 @@ export class AlexaClient {
   }
 
   async init(storedCookie?: CookieData): Promise<void> {
+    const hasCookie = !!(storedCookie?.localCookie ?? storedCookie?.cookie);
+    if (!hasCookie) {
+      throw new Error(
+        'Alexa cookie missing. The in-process proxy login is no longer supported — ' +
+        'Amazon login UI changes broke it. Generate a cookie with `alexa-cookie-cli` ' +
+        '(or another browser-based extractor) on a desktop with Chrome, then drop the ' +
+        'JSON output at <homebridge-storage>/.alexa-sync-cookie.json and restart.',
+      );
+    }
+
     const serviceHost = ALEXA_SERVICE_HOSTS[this.config.amazonDomain] ?? 'pitangui.amazon.com';
 
     return new Promise<void>((resolve, reject) => {
-      // Listen for cookie event — fires when user completes proxy login
-      this.remote.on('cookie', (cookie: string, csrf: string, macDms: any) => {
-        this.initialized = true;
-        resolve();
-      });
-
-      const hasCookie = !!(storedCookie?.localCookie ?? storedCookie?.cookie);
-
       this.remote.init(
         {
           acceptLanguage: 'en-US',
@@ -87,12 +87,9 @@ export class AlexaClient {
           baseAmazonPage: this.config.amazonDomain,
           amazonPageProxyLanguage: 'en_US',
           alexaServiceHost: serviceHost,
-          cookie: storedCookie?.localCookie ?? storedCookie?.cookie,
+          cookie: storedCookie!.localCookie ?? storedCookie!.cookie,
           formerRegistrationData: storedCookie as any,
-          macDms: storedCookie?.macDms as any,
-          proxyOnly: !hasCookie,
-          proxyOwnIp: this.config.proxyHost ?? '127.0.0.1',
-          proxyPort: this.config.proxyPort,
+          macDms: storedCookie!.macDms as any,
           cookieRefreshInterval: this.config.cookieRefreshDays * ONE_DAY_MS,
           usePushConnection: false,
           useWsMqtt: false,
@@ -100,14 +97,7 @@ export class AlexaClient {
         },
         (err: Error | null) => {
           if (err) {
-            const msg = err.message ?? '';
-            // "Please open http://..." means the proxy is running and waiting for login
-            // This is not a real error — don't reject, wait for the cookie event
-            if (msg.includes('Please open')) {
-              // Proxy is running, waiting for browser login — don't reject
-              return;
-            }
-            reject(new Error(`Alexa auth failed: ${msg}`));
+            reject(new Error(`Alexa auth failed: ${err.message ?? ''}`));
           } else {
             this.initialized = true;
             resolve();
@@ -351,7 +341,6 @@ export class AlexaClient {
     (client as any).circuitOpenedAt = 0;
     (client as any).config = {
       amazonDomain: 'amazon.com',
-      proxyPort: 3456,
       cookieRefreshDays: 4,
       persistPath: '/tmp',
     };

@@ -202,41 +202,42 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
     if (config.providers?.alexa) {
       this.log.info('Initializing Alexa provider');
-      const alexaClient = new AlexaClient({
-        amazonDomain: config.providers.alexa.amazonDomain ?? 'amazon.com',
-        proxyHost: config.providers.alexa.proxyHost ?? 'homebridge.local',
-        proxyPort: config.providers.alexa.proxyPort ?? 3456,
-        cookieRefreshDays: config.providers.alexa.cookieRefreshDays ?? 4,
-        persistPath: this.api.user.storagePath(),
-        logger: (msg: string) => this.log.debug('[Alexa]', msg),
-        warnLogger: (msg: string) => this.log.warn(msg),
-      });
-
-      const cookiePath = `${this.api.user.storagePath()}/.alexa-sync-cookie.json`;
       const amazonDomain = config.providers.alexa.amazonDomain ?? 'amazon.com';
+      const cookiePath = `${this.api.user.storagePath()}/.alexa-sync-cookie.json`;
+
       let storedCookie: any;
       try {
-        const data = readFileSync(cookiePath, 'utf8');
-        storedCookie = JSON.parse(data);
-        // Ensure amazonPage is set so alexa-remote2 uses the right domain
+        storedCookie = JSON.parse(readFileSync(cookiePath, 'utf8'));
         storedCookie.amazonPage = amazonDomain;
       } catch {
-        // No stored cookie
+        // No stored cookie — fall through and emit setup guidance below
       }
 
-      // Always listen for cookie events to persist them
-      alexaClient.onCookieRefresh((cookie) => {
-        try {
-          const toSave = { ...cookie, amazonPage: amazonDomain };
-          writeFileSync(cookiePath, JSON.stringify(toSave));
-          this.log.info('Alexa cookie saved. Restart Homebridge to discover Alexa devices.');
-        } catch (err) {
-          this.log.warn('Failed to save Alexa cookie:', err);
-        }
-      });
+      if (!storedCookie) {
+        this.log.warn(
+          `No Alexa cookie at ${cookiePath}. Generate one with \`alexa-cookie-cli\` ` +
+          'on a desktop with Chrome (the in-process proxy login was removed because ' +
+          "Amazon's login UI changes keep breaking it), copy the JSON to the path " +
+          'above, then restart Homebridge.',
+        );
+      } else {
+        const alexaClient = new AlexaClient({
+          amazonDomain,
+          cookieRefreshDays: config.providers.alexa.cookieRefreshDays ?? 4,
+          persistPath: this.api.user.storagePath(),
+          logger: (msg: string) => this.log.debug('[Alexa]', msg),
+          warnLogger: (msg: string) => this.log.warn(msg),
+        });
 
-      if (storedCookie) {
-        // Have a cookie — try to init and connect
+        alexaClient.onCookieRefresh((cookie) => {
+          try {
+            const toSave = { ...cookie, amazonPage: amazonDomain };
+            writeFileSync(cookiePath, JSON.stringify(toSave));
+          } catch (err) {
+            this.log.warn('Failed to save refreshed Alexa cookie:', err);
+          }
+        });
+
         try {
           await alexaClient.init(storedCookie);
           this.log.info('Alexa authenticated');
@@ -249,17 +250,8 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
           providers.push(new AlexaProvider(alexaClient, config.providers.alexa));
         } catch (err) {
           this.log.error('Alexa auth failed:', err);
-          this.log.warn('Alexa devices unavailable. Delete cookie and re-authenticate.');
+          this.log.warn('Alexa devices unavailable. Re-run alexa-cookie-cli and replace the cookie file.');
         }
-      } else {
-        // No cookie — start proxy in background for browser login
-        const proxyHost = config.providers.alexa.proxyHost ?? 'homebridge.local';
-        const proxyPort = config.providers.alexa.proxyPort ?? 3456;
-        this.log.info(`No Alexa cookie. Open http://${proxyHost}:${proxyPort}/ in your browser to log in.`);
-        // Fire and forget — init will wait for cookie event, cookie handler saves it
-        alexaClient.init().catch(() => {
-          // Expected — proxy is running, waiting for login
-        });
       }
     }
 

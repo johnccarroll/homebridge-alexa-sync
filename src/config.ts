@@ -8,8 +8,6 @@ export interface TuyaConfig {
 
 export interface AlexaConfig {
   amazonDomain?: string;
-  proxyHost?: string;
-  proxyPort?: number;
   pollInterval?: number;
   cookieRefreshDays?: number;
   deviceTypes?: string[];
@@ -65,7 +63,6 @@ export function validateConfig(config: Record<string, unknown>): config is Plugi
 
   const alexa = providers.alexa as Record<string, unknown> | undefined;
   if (alexa) {
-    if (alexa.proxyPort !== undefined && typeof alexa.proxyPort !== 'number') return false;
     if (alexa.pollInterval !== undefined && typeof alexa.pollInterval !== 'number') return false;
   }
   return true;
