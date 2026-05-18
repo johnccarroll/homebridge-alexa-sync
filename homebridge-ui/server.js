@@ -73,11 +73,20 @@ class AlexaSyncUiServer extends HomebridgePluginUiServer {
     const options = {
       logger: (msg) => { /* swallow library chatter — surface only on error */ },
       amazonPage,
+      // baseAmazonPage + amazonPageProxyLanguage default to amazon.de / de_DE
+      // when unset (regression bait — fixed in 2dc0dcb and again here).
+      baseAmazonPage: amazonPage,
+      amazonPageProxyLanguage: amazonPage === 'amazon.com' ? 'en_US'
+        : amazonPage === 'amazon.co.uk' ? 'en_GB'
+        : amazonPage === 'amazon.de' ? 'de_DE'
+        : amazonPage === 'amazon.ca' ? 'en_CA'
+        : amazonPage === 'amazon.com.au' ? 'en_AU'
+        : 'en_US',
       acceptLanguage: 'en-US',
+      setupProxy: true,
       proxyOwnIp: browserHost,
       proxyPort,
       proxyListenBind: '0.0.0.0',
-      proxyOnly: true,
     };
 
     const promise = new Promise((resolve, reject) => {
