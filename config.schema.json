@@ -78,12 +78,12 @@
                 ]
               },
               "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 60 },
-              "cookieRefreshDays": { "title": "Cookie Refresh Interval (days)", "type": "number", "default": 4 },
+              "cookieRefreshDays": { "title": "Cookie Refresh Interval (days)", "type": "number", "default": 14 },
               "deviceTypes": {
                 "title": "Device Types to Import",
                 "type": "array",
                 "items": { "type": "string" },
-                "default": ["LIGHT", "SWITCH", "SMARTPLUG"]
+                "default": ["LIGHT", "SWITCH", "SMARTPLUG", "THERMOSTAT"]
               }
             }
           },

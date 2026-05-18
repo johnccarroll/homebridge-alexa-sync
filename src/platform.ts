@@ -249,7 +249,7 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
       } else {
         const alexaClient = new AlexaClient({
           amazonDomain,
-          cookieRefreshDays: config.providers.alexa.cookieRefreshDays ?? 4,
+          cookieRefreshDays: config.providers.alexa.cookieRefreshDays ?? 14,
           persistPath: this.api.user.storagePath(),
           logger: (msg: string) => this.log.debug('[Alexa]', msg),
           warnLogger: (msg: string) => this.log.warn(msg),
@@ -458,10 +458,12 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
       for (const [provider, failCount] of failedProviders) {
         const totalCount = polledProviders.get(provider) ?? 0;
-        if (failCount === totalCount && !suppressedProviders.has(provider)) {
-          suppressedProviders.add(provider);
-          this.log.warn(`${provider} provider: all ${failCount} device(s) failed — suppressing repeat logs`);
-        } else if (!suppressedProviders.has(provider)) {
+        const allFailed = failCount === totalCount;
+
+        // Always log the underlying reason on first failure, even when we're
+        // about to start suppressing — otherwise the actual cause (auth,
+        // ENDPOINT_UNREACHABLE, timeout) is invisible to anyone debugging.
+        if (!suppressedProviders.has(provider)) {
           if (provider === 'alexa' && alexaBulkResult?.status === 'rejected') {
             this.log.warn('Poll failed:', (alexaBulkResult as PromiseRejectedResult).reason);
           } else {
@@ -471,6 +473,11 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
               }
             }
           }
+        }
+
+        if (allFailed && !suppressedProviders.has(provider)) {
+          suppressedProviders.add(provider);
+          this.log.warn(`${provider} provider: all ${failCount} device(s) failed — suppressing repeat logs`);
         }
       }
     }, tickInterval);

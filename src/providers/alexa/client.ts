@@ -303,6 +303,24 @@ export class AlexaClient {
             }
             states.set(entityId, state);
           }
+
+          // Alexa returns a parallel `errors` array for endpoints that failed
+          // to report — most commonly ENDPOINT_UNREACHABLE when a device is
+          // exposed via a custom skill whose backend doesn't answer state
+          // queries. Those are expected (not transient network failures) and
+          // we already covered the device via discover-time dedup if a working
+          // path existed. Logging them at debug avoids flooding warn while
+          // still leaving a breadcrumb.
+          if (Array.isArray(result?.errors) && result.errors.length > 0 && this.config.logger) {
+            const counts: Record<string, number> = {};
+            for (const e of result.errors) {
+              const code = (e?.code as string) ?? 'UNKNOWN';
+              counts[code] = (counts[code] ?? 0) + 1;
+            }
+            const summary = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ');
+            this.config.logger(`partial state query: ${summary} of ${applianceIds.length}`);
+          }
+
           resolve(states);
         },
       );

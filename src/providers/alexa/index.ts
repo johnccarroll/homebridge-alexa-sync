@@ -21,9 +21,36 @@ export class AlexaProvider implements DeviceProvider {
 
   async discover(): Promise<BridgeDevice[]> {
     const alexaDevices = await this.client.discoverDevices();
-    const devices: BridgeDevice[] = [];
 
+    // Group raw Alexa entries by friendlyName so we can pick the best
+    // applianceId per device. Smart-home devices commonly surface multiple
+    // times — once via the native Smart Life skill (applianceId prefixed
+    // `AAA_SonarCloudService_…`) and once via a user-installed custom skill
+    // (prefixed `SKILL_…`). The custom-skill path frequently returns
+    // ENDPOINT_UNREACHABLE on state queries (skill backend only handles
+    // directives, not ReportState), so when both exist for the same name we
+    // pick the native one.
+    const byName = new Map<string, typeof alexaDevices[number]>();
+    const applianceScore = (id: string) => {
+      if (id.startsWith('AAA_')) return 2;     // native Smart Home graph — best
+      if (id.startsWith('SKILL_')) return 0;   // custom skill — often unreachable
+      return 1;
+    };
     for (const ad of alexaDevices) {
+      const aid = ad.legacyAppliance?.applianceId ?? ad.id;
+      const existing = byName.get(ad.friendlyName);
+      if (!existing) {
+        byName.set(ad.friendlyName, ad);
+        continue;
+      }
+      const existingAid = existing.legacyAppliance?.applianceId ?? existing.id;
+      if (applianceScore(aid) > applianceScore(existingAid)) {
+        byName.set(ad.friendlyName, ad);
+      }
+    }
+
+    const devices: BridgeDevice[] = [];
+    for (const ad of byName.values()) {
       const device = alexaDeviceToBridgeDevice(ad, this.config.deviceTypes);
       if (device) {
         devices.push(device);
