@@ -38,14 +38,20 @@ export async function handleAlexaDirective(event: any, dm: DeviceManager, stateR
     return buildDiscoveryResponse(devices);
   }
 
+  // CRITICAL: never call dm.getState(endpointId) from a directive handler.
+  // When this plugin is invoked via a self-hosted Alexa Smart Home Skill
+  // Lambda for a device that was *also* discovered via the Alexa cookie
+  // provider, dm.getState → AlexaProvider.getState → alexa-remote2.query
+  // → Alexa graph → back to this plugin = infinite loop, terminated only by
+  // Alexa's 8s deadline as ENDPOINT_UNREACHABLE.
+  //
+  // The plugin's poll loop keeps DeviceManager's cache warm; that's our
+  // source of truth for directive responses. Cache-only is correct here.
+
   if (namespace === 'Alexa' && name === 'ReportState') {
     const endpointId = directive.endpoint.endpointId;
-    try {
-      const state = await dm.getState(endpointId);
-      return buildStateReportResponse(endpointId, correlationToken, state);
-    } catch {
-      return buildErrorResponse('NO_SUCH_ENDPOINT', `Device ${endpointId} not found`, correlationToken, endpointId);
-    }
+    const state = dm.getCachedState(endpointId) ?? {};
+    return buildStateReportResponse(endpointId, correlationToken, state);
   }
 
   const endpointId = directive.endpoint?.endpointId;
@@ -58,7 +64,9 @@ export async function handleAlexaDirective(event: any, dm: DeviceManager, stateR
     if (Object.keys(stateChange).length > 0) {
       await dm.setState(endpointId, stateChange);
     }
-    const currentState = await dm.getState(endpointId);
+    // setState already optimistically merged the new state into cache; read
+    // from cache rather than re-querying the provider (loop prevention).
+    const currentState = dm.getCachedState(endpointId) ?? {};
     return buildControlResponse(endpointId, correlationToken, currentState);
   } catch (err) {
     return buildErrorResponse('ENDPOINT_UNREACHABLE', (err as Error).message, correlationToken, endpointId);

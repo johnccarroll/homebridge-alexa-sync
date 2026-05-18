@@ -1,7 +1,7 @@
 {
   "name": "homebridge-alexa-sync",
   "displayName": "Alexa Sync",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Two-way Homebridge ↔ Alexa sync. Bidirectional state mirroring with provider-based device support (Tuya, Alexa cookie, Resideo). Part of the Switchboard smart-home family.",
   "type": "module",
   "main": "dist/index.js",
