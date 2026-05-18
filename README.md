@@ -83,23 +83,17 @@ Restart Homebridge. The log will say `Initializing Tuya provider (LAN, N devices
 
 If your Tuya/Smart Life devices are already linked to Alexa (Alexa app → Devices → "+" → Link a service → Smart Life), the Alexa cookie provider sees them all through Alexa's smart-home API and gives you full HomeKit control without ever touching Tuya's dev console. This is the path most hobbyists want.
 
-Amazon's login UI keeps breaking automated proxies, so the cookie is harvested from a logged-in Chrome session you already have:
+**Sign-in is one click inside the Homebridge UI:**
 
-1. **Log into amazon.com in Chrome** with the Amazon account that owns your Echo devices.
-2. **Open DevTools → Network**, reload, click any `amazon.com` request, copy the value of the `Cookie:` request header (one long string of `key=value; key2=value2; ...`).
-3. **Build the JSON** the plugin reads:
-   ```bash
-   node scripts/build-alexa-cookie.mjs --cookie '<paste the cookie string>' > cookie.json
-   ```
-   The script fetches the CSRF token from `alexa.amazon.com/api/language` using your cookie and assembles the file in alexa-remote2 format.
-4. **Drop it on the Pi**:
-   ```bash
-   scp cookie.json homebridge:/tmp/cookie.json
-   ssh homebridge "sudo mv /tmp/cookie.json /var/lib/homebridge/.alexa-sync-cookie.json && sudo systemctl restart homebridge"
-   ```
-5. **Enable the Alexa provider** in your Homebridge config (just `{ "amazonDomain": "amazon.com" }` is enough — no proxy fields anymore). On restart, the plugin authenticates with the cookie and discovers every device that's in your Alexa account.
+1. Open the Homebridge web UI → Plugins → Alexa Sync → **Settings**. The plugin ships a custom UI tab with a single "Sign in with Amazon" button.
+2. Click it. A popup opens to the real Amazon login page (proxied through the plugin so the cookie is captured on return).
+3. Enter your Amazon password and your **authenticator-app** 2FA code. (SMS 2FA does not currently work with Amazon's proxy flow — switch to an authenticator app on your Amazon security settings if you have not already.)
+4. The popup closes itself when the login succeeds; the settings tab updates to *"Signed in"* and writes `.alexa-sync-cookie.json` to your Homebridge storage path.
+5. Enable the Alexa provider in your config (`{ "amazonDomain": "amazon.com" }` is enough — no proxy fields), then restart Homebridge. The plugin authenticates with the captured cookie and discovers every device in your Alexa account.
 
-The plugin auto-refreshes the cookie every 4 days while running. You only redo step 1–4 if Amazon forces a re-login (password change, suspicious-activity flag, etc.).
+The plugin auto-refreshes the cookie every 4 days while running. If Amazon forces a re-login (password change, suspicious-activity flag, etc.), the settings tab will say *"Not signed in"* — click the button again.
+
+**Headless fallback (no Homebridge UI access).** If you cannot reach the Homebridge UI from a browser, there is a manual CLI path: log into amazon.com in Chrome, copy the `Cookie:` request header from devtools, then run `node scripts/build-alexa-cookie.mjs --cookie '<string>' > cookie.json` and `scp` it to `<homebridge-storage>/.alexa-sync-cookie.json`. The script fetches the CSRF token from `alexa.amazon.com/api/language` and writes the JSON in the format the plugin reads.
 
 ### Resideo / Honeywell Home
 

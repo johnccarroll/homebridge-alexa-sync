@@ -242,10 +242,9 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
       if (!storedCookie) {
         this.log.warn(
-          `No Alexa cookie at ${cookiePath}. Build one from a logged-in Chrome ` +
-          'session with `node scripts/build-alexa-cookie.mjs --cookie "<cookie-string>"`, ' +
-          'drop the JSON at the path above, then restart Homebridge. See README ' +
-          '"Alexa cookie" section for the full walkthrough.',
+          `No Alexa cookie at ${cookiePath}. Open the plugin's settings tab in the ` +
+          'Homebridge UI and click "Sign in with Amazon" — the custom UI handles ' +
+          'the login proxy and cookie capture without devtools or manual file copying.',
         );
       } else {
         const alexaClient = new AlexaClient({
