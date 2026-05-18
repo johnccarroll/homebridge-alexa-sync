@@ -39,7 +39,8 @@
         "type": "object",
         "properties": {
           "tuya": {
-            "title": "Tuya / Smart Life",
+            "title": "Tuya / Smart Life (preview)",
+            "description": "Requires an active Tuya IoT Core subscription. As of 2026 the free trial is 1 month and the paid plan is ~$800/yr — for hobbyists, the Alexa cookie provider is usually a better fit (link your Smart Life account in the Alexa app, then control everything through Alexa here). Set `localDevices` (extracted via scripts/extract-tuya-keys.mjs) to avoid the cloud at runtime.",
             "type": "object",
             "properties": {
               "accessId": { "title": "Access ID", "type": "string" },

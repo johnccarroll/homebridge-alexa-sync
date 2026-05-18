@@ -8,11 +8,10 @@ Part of the [Switchboard](https://cloud.johncarroll.dev/switchboard) smart-home 
 
 - **Two-way sync** — changes from HomeKit or Alexa propagate to the other
 - **Provider architecture** — pluggable backends, drop in new ecosystems with a small interface
-- **Tuya / Smart Life** — direct cloud API control (no cookie scraping)
-- **Alexa fallback** — cookie-based control for devices only accessible through Alexa (e.g. Sengled Zigbee bulbs paired to Echo)
+- **Tuya / Smart Life (preview)** — direct cloud + LAN. **Requires an active Tuya IoT Core subscription** (1-month free trial as of 2026, paid is ~$800/yr). For hobbyists with a handful of devices, the Alexa-cookie path below is usually the better fit.
+- **Alexa cookie** — controls anything paired to your Alexa account (Smart Life link, Sengled, etc.) by talking to Alexa's smart-home API. The pragmatic primary path now that Tuya's free tier shrank.
 - **Resideo / Honeywell Home** — thermostats and locks via official OAuth API
 - **Voice control via Alexa** — optional, two paths (managed cloud OR self-hosted Lambda)
-- **Device deduplication** — direct API providers preferred over Alexa fallback
 - **Full light control** — on/off, brightness, color (HSB), color temperature
 
 ## Quick start
@@ -41,7 +40,11 @@ The plugin is **fully free locally**. Voice control via Alexa is optional — se
 
 ## Provider configuration
 
-### Tuya / Smart Life
+### Tuya / Smart Life (preview)
+
+> **Pricing reality check (May 2026):** Tuya's free IoT Core trial is **1 month**. After that, the paid tier starts at **~$800/year**. If you only have a handful of devices, skipping the Tuya provider and using the Alexa-cookie path instead (everything in your Smart Life app is already in your Alexa account — see the "Alexa cookie" section below) is usually the better trade. The Tuya provider stays in the codebase but is marked as preview: useful for the niche where someone already has an active subscription or paid plan, otherwise expect cloud calls to fail with `28841002 subscription expired` after the trial.
+
+If you do have an active subscription:
 
 1. Create a developer account at [iot.tuya.com](https://iot.tuya.com)
 2. Create a Cloud Project (Smart Home, US/CA → **Western America** data center)
@@ -76,26 +79,27 @@ Restart Homebridge. The log will say `Initializing Tuya provider (LAN, N devices
 - No Pulsar push — state polling only (`pollInterval` still applies).
 - Device IP is auto-discovered on first connect; if your LAN has multicast issues you can pin an `ip` per device in `tuya-local.json`.
 
-### Alexa (cookie-based fallback)
+### Alexa cookie (recommended primary for Tuya-via-Smart-Life users)
 
-For devices only controllable through Alexa (e.g. Sengled Zigbee bulbs paired directly to Echo). If all your devices already work via Tuya or Resideo, leave this provider disabled.
+If your Tuya/Smart Life devices are already linked to Alexa (Alexa app → Devices → "+" → Link a service → Smart Life), the Alexa cookie provider sees them all through Alexa's smart-home API and gives you full HomeKit control without ever touching Tuya's dev console. This is the path most hobbyists want.
 
-Amazon's login UI changes broke the in-process proxy login that earlier versions used. You now generate the cookie out-of-band with [`alexa-cookie-cli`](https://www.npmjs.com/package/alexa-cookie-cli) (or any tool that drives a real Chrome session) and drop the JSON in place:
+Amazon's login UI keeps breaking automated proxies, so the cookie is harvested from a logged-in Chrome session you already have:
 
-1. On a desktop with Chrome installed (your laptop, not the Pi):
+1. **Log into amazon.com in Chrome** with the Amazon account that owns your Echo devices.
+2. **Open DevTools → Network**, reload, click any `amazon.com` request, copy the value of the `Cookie:` request header (one long string of `key=value; key2=value2; ...`).
+3. **Build the JSON** the plugin reads:
    ```bash
-   npx alexa-cookie-cli --amazonPage amazon.com --output cookie.json
+   node scripts/build-alexa-cookie.mjs --cookie '<paste the cookie string>' > cookie.json
    ```
-   It opens Chrome — log in with your Amazon account when prompted. The CLI writes a JSON file with the cookies and macDms data alexa-remote2 needs.
-
-2. Copy the JSON into your Homebridge storage path on the Pi:
+   The script fetches the CSRF token from `alexa.amazon.com/api/language` using your cookie and assembles the file in alexa-remote2 format.
+4. **Drop it on the Pi**:
    ```bash
-   scp cookie.json pi@homebridge.local:/var/lib/homebridge/.alexa-sync-cookie.json
+   scp cookie.json homebridge:/tmp/cookie.json
+   ssh homebridge "sudo mv /tmp/cookie.json /var/lib/homebridge/.alexa-sync-cookie.json && sudo systemctl restart homebridge"
    ```
+5. **Enable the Alexa provider** in your Homebridge config (just `{ "amazonDomain": "amazon.com" }` is enough — no proxy fields anymore). On restart, the plugin authenticates with the cookie and discovers every device that's in your Alexa account.
 
-3. Enable the Alexa provider in your Homebridge config (just `{ "amazonDomain": "amazon.com" }` is enough) and restart Homebridge. Alexa devices will be discovered on the next startup.
-
-The plugin auto-refreshes the cookie every 4 days while running, so you only have to repeat this when the refresh chain breaks (Amazon forces a new login, you change your password, etc.).
+The plugin auto-refreshes the cookie every 4 days while running. You only redo step 1–4 if Amazon forces a re-login (password change, suspicious-activity flag, etc.).
 
 ### Resideo / Honeywell Home
 

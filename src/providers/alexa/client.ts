@@ -70,10 +70,9 @@ export class AlexaClient {
     const hasCookie = !!(storedCookie?.localCookie ?? storedCookie?.cookie);
     if (!hasCookie) {
       throw new Error(
-        'Alexa cookie missing. The in-process proxy login is no longer supported — ' +
-        'Amazon login UI changes broke it. Generate a cookie with `alexa-cookie-cli` ' +
-        '(or another browser-based extractor) on a desktop with Chrome, then drop the ' +
-        'JSON output at <homebridge-storage>/.alexa-sync-cookie.json and restart.',
+        'Alexa cookie missing. Build one from a logged-in Chrome session via ' +
+        '`scripts/build-alexa-cookie.mjs` and drop the JSON at ' +
+        '<homebridge-storage>/.alexa-sync-cookie.json. See README for the walkthrough.',
       );
     }
 

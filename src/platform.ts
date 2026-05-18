@@ -203,7 +203,13 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
           debug: (m: string) => this.log.debug(m),
         }));
       } else {
-        this.log.info('Initializing Tuya provider (cloud)');
+        this.log.info('Initializing Tuya provider (cloud, preview)');
+        this.log.warn(
+          'Tuya cloud provider requires an active IoT Core subscription. ' +
+          'Free trial is 1 month, paid is ~$800/yr — if that has lapsed, expect ' +
+          '"subscription expired" discovery failures. Consider the Alexa cookie ' +
+          'provider for free hobbyist control of Smart Life-linked devices.',
+        );
         const tuya = new TuyaProvider(config.providers.tuya, {
           info: (m: string) => this.log.info(m),
           warn: (m: string) => this.log.warn(m),
@@ -236,10 +242,10 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
       if (!storedCookie) {
         this.log.warn(
-          `No Alexa cookie at ${cookiePath}. Generate one with \`alexa-cookie-cli\` ` +
-          'on a desktop with Chrome (the in-process proxy login was removed because ' +
-          "Amazon's login UI changes keep breaking it), copy the JSON to the path " +
-          'above, then restart Homebridge.',
+          `No Alexa cookie at ${cookiePath}. Build one from a logged-in Chrome ` +
+          'session with `node scripts/build-alexa-cookie.mjs --cookie "<cookie-string>"`, ' +
+          'drop the JSON at the path above, then restart Homebridge. See README ' +
+          '"Alexa cookie" section for the full walkthrough.',
         );
       } else {
         const alexaClient = new AlexaClient({
