@@ -70,10 +70,9 @@ export class AlexaClient {
     const hasCookie = !!(storedCookie?.localCookie ?? storedCookie?.cookie);
     if (!hasCookie) {
       throw new Error(
-        'Alexa cookie missing. Open the plugin in the Homebridge UI and click ' +
-        '"Sign in with Amazon" — the custom UI handles the proxy login and cookie ' +
-        'capture. The fallback CLI (scripts/build-alexa-cookie.mjs) still works for ' +
-        'headless installs.',
+        'Alexa cookie missing. Run `node scripts/alexa-login-proxy.cjs` from the ' +
+        'plugin directory, open the URL it prints, sign in with Amazon, then ' +
+        'restart Homebridge.',
       );
     }
 

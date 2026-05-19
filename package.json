@@ -1,24 +1,22 @@
 {
   "name": "homebridge-alexa-sync",
   "displayName": "Alexa Sync",
-  "version": "0.1.6",
-  "description": "Two-way Homebridge ↔ Alexa sync. Bidirectional state mirroring with provider-based device support (Tuya, Alexa cookie, Resideo). Part of the Switchboard smart-home family.",
+  "version": "0.1.7",
+  "description": "Homebridge plugin that mirrors Alexa-linked smart-home devices (Smart Life, Sengled, Resideo, etc.) into HomeKit. Cookie-based; no Tuya developer subscription required for the common Smart Life path. Part of the Switchboard smart-home family.",
   "type": "module",
   "main": "dist/index.js",
   "files": [
     "dist/",
     "config.schema.json",
     "alexa-lambda/",
-    "homebridge-ui/",
+    "scripts/",
     "LICENSE",
     "README.md"
   ],
   "keywords": [
     "homebridge-plugin",
-    "homebridge-plugin-ui",
     "alexa",
-    "tuya",
-    "resideo",
+    "smart-life",
     "smart-home",
     "homekit",
     "two-way",
@@ -35,7 +33,7 @@
   },
   "homepage": "https://github.com/johnccarroll/homebridge-alexa-sync#readme",
   "engines": {
-    "node": "^18.20.4 || ^20.15.1 || ^22 || ^24",
+    "node": "^20.15.1 || ^22 || ^24",
     "homebridge": "^1.8.0 || ^2.0.0-beta.0"
   },
   "scripts": {
@@ -53,7 +51,6 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "@homebridge/plugin-ui-utils": "^2.2.3",
     "@supabase/supabase-js": "^2.104.1",
     "alexa-cookie2": "^5.0.3",
     "alexa-remote2": "^8.0.4",
