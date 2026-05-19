@@ -22,7 +22,7 @@ export function loadOrCreateInstallId(storagePath: string): string {
   }
   const id = randomUUID();
   try {
-    writeFileSync(path, id, 'utf8');
+    writeFileSync(path, id, { encoding: 'utf8', mode: 0o600 });
   } catch {
     // If we can't write, we still return a valid id for this session.
     // On next startup a new id will be generated — acceptable fallback.

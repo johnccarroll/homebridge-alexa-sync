@@ -10,7 +10,7 @@ import type {
 } from 'homebridge';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
 import type { PluginConfig } from './config.js';
-import { validateConfig } from './config.js';
+import { validateConfig, describeRemovedKeys } from './config.js';
 import { DeviceManager } from './device-manager.js';
 import type { DeviceProvider } from './providers/provider.js';
 import { AlexaProvider } from './providers/alexa/index.js';
@@ -41,9 +41,13 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
     this.Service = api.hap.Service;
     this.Characteristic = api.hap.Characteristic;
 
-    if (!validateConfig(config as unknown as Record<string, unknown>)) {
+    const rawConfig = config as unknown as Record<string, unknown>;
+    if (!validateConfig(rawConfig)) {
       this.log.error('Invalid plugin configuration');
       return;
+    }
+    for (const warning of describeRemovedKeys(rawConfig)) {
+      this.log.warn(warning);
     }
 
     this.api.on('didFinishLaunching', () => {
@@ -140,7 +144,10 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
         alexaClient.onCookieRefresh((cookie) => {
           try {
             const toSave = { ...cookie, amazonPage: amazonDomain };
-            writeFileSync(cookiePath, JSON.stringify(toSave));
+            // 0o600: cookie holds Amazon session + macDms (controls the
+            // account's smart home). World-readable on multi-user hosts
+            // would let any local user impersonate the Amazon account.
+            writeFileSync(cookiePath, JSON.stringify(toSave), { mode: 0o600 });
           } catch (err) {
             this.log.warn('Failed to save refreshed Alexa cookie:', err);
           }
@@ -152,7 +159,7 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
           const cookieData = alexaClient.getCookieData();
           if (cookieData) {
-            try { writeFileSync(cookiePath, JSON.stringify(cookieData)); } catch { /* ignore */ }
+            try { writeFileSync(cookiePath, JSON.stringify(cookieData), { mode: 0o600 }); } catch { /* ignore */ }
           }
 
           providers.push(new AlexaProvider(alexaClient, config.providers.alexa));
@@ -230,7 +237,11 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
     const intervalMs = (config.providers?.alexa?.pollInterval ?? 60) * 1000;
     const tickInterval = 15_000;
     const lastPollTime = new Map<string, number>();
-    let circuitSuppressed = false;
+    // Dedupe error logs by message so a sustained failure (expired cookie,
+    // network blip) only logs once per distinct cause, but a NEW error
+    // class is still visible. The inner AlexaClient circuit breaker handles
+    // backoff itself.
+    let lastLoggedErr: string | null = null;
 
     this.pollTimer = setInterval(async () => {
       if (!this.deviceManager) return;
@@ -263,14 +274,15 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
             });
           }
         }
-        if (circuitSuppressed) {
-          circuitSuppressed = false;
+        if (lastLoggedErr !== null) {
           this.log.info('alexa provider: recovered');
+          lastLoggedErr = null;
         }
       } catch (err) {
-        if (!circuitSuppressed) {
-          this.log.warn('Alexa poll failed:', err instanceof Error ? err.message : err);
-          circuitSuppressed = true;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg !== lastLoggedErr) {
+          this.log.warn(`Alexa poll failed: ${msg}`);
+          lastLoggedErr = msg;
         }
       }
     }, tickInterval);

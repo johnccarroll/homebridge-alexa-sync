@@ -17,8 +17,20 @@
 //   ALEXA_AMAZON_PAGE   default amazon.com — set amazon.co.uk / amazon.de / etc
 //   ALEXA_PROXY_HOST    default the machine's hostname — what the URL points at
 //   ALEXA_PROXY_PORT    default 3456
+//   ALEXA_PROXY_BIND    default 127.0.0.1 (loopback only). Set to 0.0.0.0 to
+//                       expose on the LAN — read the security note below first.
 //   ALEXA_COOKIE_PATH   default <HOMEBRIDGE_STORAGE_PATH>/.alexa-sync-cookie.json
 //                       (falls back to $HOME/.homebridge or /var/lib/homebridge)
+//
+// SECURITY: the proxy serves Amazon's actual login form for the few minutes
+// it's running. Anyone who can reach the bind address during that window can
+// (a) snoop the username/password the user types in, and (b) walk away with
+// the captured cookie. Defaulting to 127.0.0.1 means "only this host" — use
+// SSH port forwarding to reach it from another machine:
+//   ssh -L 3456:127.0.0.1:3456 your-homebridge-host
+// Then open http://localhost:3456/ in your browser. If you genuinely need
+// LAN-wide exposure, set ALEXA_PROXY_BIND=0.0.0.0 and accept the risk —
+// the script prints a warning when that happens.
 //
 // This file exists because Amazon's login flow keeps shifting and an
 // in-process proxy started by Homebridge itself is fragile; running it as
@@ -32,8 +44,24 @@ const fs = require('node:fs');
 const alexaCookie = require('alexa-cookie2');
 
 const amazonPage = process.env.ALEXA_AMAZON_PAGE ?? 'amazon.com';
-const proxyHost = process.env.ALEXA_PROXY_HOST ?? `${os.hostname()}.local`;
+const proxyBind = process.env.ALEXA_PROXY_BIND ?? '127.0.0.1';
+// proxyOwnIp is the hostname embedded in proxied URLs the browser hits.
+// When bound to loopback, the user reaches us via an SSH tunnel so the
+// browser's URL is localhost — use that. Otherwise default to the host's
+// mDNS name so a browser on the LAN can resolve it.
+const proxyHost = process.env.ALEXA_PROXY_HOST
+  ?? (proxyBind === '127.0.0.1' || proxyBind === 'localhost'
+    ? 'localhost'
+    : `${os.hostname()}.local`);
 const proxyPort = Number(process.env.ALEXA_PROXY_PORT ?? 3456);
+
+if (proxyBind !== '127.0.0.1' && proxyBind !== 'localhost') {
+  process.stderr.write(
+    `\n⚠  ALEXA_PROXY_BIND=${proxyBind} — the Amazon login form will be reachable from any host that can route to ${proxyBind}:${proxyPort}.\n` +
+    `   Anyone there during this run can snoop your Amazon credentials or steal the captured cookie.\n` +
+    `   Prefer the default (loopback) plus an SSH tunnel: ssh -L ${proxyPort}:127.0.0.1:${proxyPort} <this-host>\n\n`,
+  );
+}
 
 const PROXY_LANGS = {
   'amazon.com': 'en_US',
@@ -71,7 +99,7 @@ alexaCookie.generateAlexaCookie(
     setupProxy: true,
     proxyOwnIp: proxyHost,
     proxyPort,
-    proxyListenBind: '0.0.0.0',
+    proxyListenBind: proxyBind,
     logger: (msg) => process.stderr.write(`[alexa-cookie] ${msg}\n`),
   },
   (err, result) => {
@@ -91,8 +119,9 @@ alexaCookie.generateAlexaCookie(
       process.exit(1);
     }
     const toSave = { ...result, amazonPage };
-    fs.writeFileSync(cookiePath, JSON.stringify(toSave));
-    process.stderr.write(`\nCookie saved to ${cookiePath}\nRestart Homebridge to load it.\n`);
+    // 0o600 — see SECURITY note at the top of this file.
+    fs.writeFileSync(cookiePath, JSON.stringify(toSave), { mode: 0o600 });
+    process.stderr.write(`\nCookie saved to ${cookiePath} (mode 0600)\nRestart Homebridge to load it.\n`);
     process.exit(0);
   },
 );
