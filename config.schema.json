@@ -9,22 +9,11 @@
       "name": {
         "title": "Name",
         "type": "string",
-        "default": "Alexa Bridge"
-      },
-      "alexaSkill": {
-        "title": "Alexa Smart Home Skill (Two-Way Sync)",
-        "type": "object",
-        "properties": {
-          "enabled": { "title": "Enable Alexa Skill API", "type": "boolean", "default": false },
-          "apiPort": { "title": "API Server Port", "type": "number", "default": 9090 },
-          "apiKey": { "title": "API Key (shared secret with Lambda)", "type": "string", "x-schema-form": { "type": "password" } },
-          "lwaClientId": { "title": "LWA Client ID (for proactive reporting)", "type": "string" },
-          "lwaClientSecret": { "title": "LWA Client Secret", "type": "string", "x-schema-form": { "type": "password" } }
-        }
+        "default": "Alexa Sync"
       },
       "supporter": {
         "title": "Switchboard Supporter License (optional)",
-        "description": "The plugin is fully free locally. A Switchboard supporter license unlocks the optional managed cloud features — Alexa Smart Home Skill voice control without you setting up your own AWS Lambda. Sponsor at github.com/sponsors/johnccarroll ($3/mo, cancel anytime), then get your token at https://cloud.johncarroll.dev/switchboard and paste it below. Verified offline against an embedded public key — the plugin never sends your email or device data to any external server.",
+        "description": "The plugin is fully free locally. A Switchboard supporter license unlocks Alexa Smart Home Skill voice control for Homebridge accessories that aren't already in your Alexa account. Sponsor at github.com/sponsors/johnccarroll ($3/mo, cancel anytime), then get your token at https://cloud.johncarroll.dev/switchboard and paste it below. Verified offline against an embedded public key — the plugin never sends your email or device data to any external server.",
         "type": "object",
         "properties": {
           "token": {
@@ -38,31 +27,9 @@
         "title": "Providers",
         "type": "object",
         "properties": {
-          "tuya": {
-            "title": "Tuya / Smart Life (preview)",
-            "description": "Requires an active Tuya IoT Core subscription. As of 2026 the free trial is 1 month and the paid plan is ~$800/yr — for hobbyists, the Alexa cookie provider is usually a better fit (link your Smart Life account in the Alexa app, then control everything through Alexa here). Set `localDevices` (extracted via scripts/extract-tuya-keys.mjs) to avoid the cloud at runtime.",
-            "type": "object",
-            "properties": {
-              "accessId": { "title": "Access ID", "type": "string" },
-              "accessKey": { "title": "Access Key", "type": "string", "x-schema-form": { "type": "password" } },
-              "region": {
-                "title": "Region",
-                "type": "string",
-                "oneOf": [
-                  { "title": "US", "enum": ["us"] },
-                  { "title": "EU", "enum": ["eu"] },
-                  { "title": "CN", "enum": ["cn"] },
-                  { "title": "IN", "enum": ["in"] }
-                ],
-                "default": "us"
-              },
-              "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 30 }
-            },
-            "required": ["accessId", "accessKey"]
-          },
           "alexa": {
-            "title": "Alexa (Cookie-Based Fallback)",
-            "description": "Recommended primary path for hobbyists. Mirrors every device linked to your Alexa account (Smart Life skill, Sengled paired to Echo, etc.) into HomeKit by talking to Alexa's smart-home API with a captured session cookie. Generate the cookie by running `node scripts/alexa-login-proxy.cjs` from the plugin directory — see README.",
+            "title": "Alexa account",
+            "description": "Mirrors every device linked to your Alexa account (Smart Life skill, Sengled paired to Echo, etc.) into HomeKit by talking to Alexa's smart-home API with a captured session cookie. Generate the cookie by running `node scripts/alexa-login-proxy.cjs` from the plugin directory — see README.",
             "type": "object",
             "properties": {
               "amazonDomain": {
@@ -86,17 +53,6 @@
                 "default": ["LIGHT", "SWITCH", "SMARTPLUG", "THERMOSTAT"]
               }
             }
-          },
-          "resideo": {
-            "title": "Resideo / Honeywell Home",
-            "type": "object",
-            "properties": {
-              "consumerKey": { "title": "Consumer Key", "type": "string" },
-              "consumerSecret": { "title": "Consumer Secret", "type": "string", "x-schema-form": { "type": "password" } },
-              "refreshToken": { "title": "Refresh Token", "type": "string", "x-schema-form": { "type": "password" } },
-              "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 120 }
-            },
-            "required": ["consumerKey", "consumerSecret", "refreshToken"]
           }
         }
       }

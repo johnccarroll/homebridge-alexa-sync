@@ -8,20 +8,15 @@ import type {
   PlatformConfig,
   Service,
 } from 'homebridge';
-import { PLATFORM_NAME, PLUGIN_NAME, PLUGIN_VERSION } from './settings.js';
+import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
 import type { PluginConfig } from './config.js';
-import type { DeviceState } from './types.js';
 import { validateConfig } from './config.js';
 import { DeviceManager } from './device-manager.js';
 import type { DeviceProvider } from './providers/provider.js';
-import { TuyaProvider } from './providers/tuya/index.js';
-import { TuyaLocalProvider, type LocalTuyaDeviceConfig } from './providers/tuya/local.js';
 import { AlexaProvider } from './providers/alexa/index.js';
-import { ResideoProvider } from './providers/resideo/index.js';
 import { AlexaClient } from './providers/alexa/client.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { configureAccessory, updateAccessoryState } from './accessory.js';
-import { ApiServer } from './api-server.js';
 import { loadSupporterState, type SupporterState } from './supporter/index.js';
 import { CloudClient } from './cloud/client.js';
 import { StateChangePublisher } from './cloud/state-change.js';
@@ -34,7 +29,6 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
   private readonly cachedAccessories = new Map<string, PlatformAccessory>();
   private deviceManager?: DeviceManager;
   private pollTimer?: ReturnType<typeof setInterval>;
-  private apiServer?: ApiServer;
   private supporter: SupporterState = { mode: 'free' };
   private cloudClient?: CloudClient;
   private stateChangePublisher?: StateChangePublisher;
@@ -59,7 +53,6 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
     this.api.on('shutdown', () => {
       if (this.pollTimer) clearInterval(this.pollTimer);
       this.deviceManager?.dispose();
-      this.apiServer?.stop();
       void this.cloudClient?.stop();
       this.stateChangePublisher?.dispose();
     });
@@ -110,122 +103,10 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
         this.log.warn(`Cloud client failed to start: ${msg}. Running in local-only mode.`);
       }
     }
-
-    // Start API server for Alexa Smart Home Skill
-    if (pluginConfig.alexaSkill?.enabled && pluginConfig.alexaSkill?.apiKey) {
-      const port = pluginConfig.alexaSkill.apiPort ?? 9090;
-
-      // Set up proactive state reporter if LWA credentials are available
-      let stateReporter: import('./alexa-skill/state-reporter.js').AlexaStateReporter | undefined;
-      if (pluginConfig.alexaSkill.lwaClientId && pluginConfig.alexaSkill.lwaClientSecret) {
-        const { AlexaStateReporter: Reporter } = await import('./alexa-skill/state-reporter.js');
-        stateReporter = new Reporter(
-          pluginConfig.alexaSkill.lwaClientId,
-          pluginConfig.alexaSkill.lwaClientSecret,
-        );
-
-        // Restore tokens from persistence
-        const tokenPath = `${this.api.user.storagePath()}/.alexa-sync-lwa-tokens.json`;
-        try {
-          const data = readFileSync(tokenPath, 'utf8');
-          stateReporter.restoreTokens(JSON.parse(data));
-          this.log.info('Alexa proactive state reporting enabled');
-        } catch {
-          this.log.info('Alexa proactive reporting: waiting for AcceptGrant (re-enable skill in Alexa app)');
-        }
-
-        // Persist tokens when they change
-        stateReporter.onPersist((tokens) => {
-          try {
-            writeFileSync(tokenPath, JSON.stringify(tokens));
-          } catch { /* ignore */ }
-        });
-
-        // Wire up state change notifications
-        this.deviceManager.onStateChange(async (deviceId, state) => {
-          if (!stateReporter?.isEnabled) return;
-          try {
-            await stateReporter.sendChangeReport(deviceId, state, state);
-          } catch (err) {
-            this.log.debug('ChangeReport failed:', err);
-          }
-        });
-      }
-
-      this.apiServer = new ApiServer(this.deviceManager, {
-        port,
-        apiKey: pluginConfig.alexaSkill.apiKey,
-        stateReporter,
-      });
-      await this.apiServer.start();
-      this.log.warn('API server bound to all interfaces (0.0.0.0). Ensure your network is trusted.');
-      this.log.info(`Alexa Skill API server running on port ${port}`);
-    }
-  }
-
-  /**
-   * Push a state update to HomeKit directly (used by MQTT push path so state
-   * changes reach the Home app in real time instead of on the next poll tick).
-   */
-  private updateHomeKitAccessory(fullId: string, state: DeviceState): void {
-    if (!this.deviceManager) return;
-    const device = this.deviceManager.getDevice(fullId);
-    if (!device) return;
-    const uuid = this.api.hap.uuid.generate(fullId);
-    const accessory = this.cachedAccessories.get(uuid);
-    if (!accessory) return;
-    updateAccessoryState(accessory, device, state, {
-      Service: this.Service,
-      Characteristic: this.Characteristic,
-    });
-  }
-
-  private loadLocalTuyaDevices(): LocalTuyaDeviceConfig[] | null {
-    const path = `${this.api.user.storagePath()}/tuya-local.json`;
-    try {
-      const parsed = JSON.parse(readFileSync(path, 'utf8')) as LocalTuyaDeviceConfig[];
-      if (!Array.isArray(parsed) || parsed.length === 0) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
   }
 
   private async createProviders(config: PluginConfig): Promise<DeviceProvider[]> {
     const providers: DeviceProvider[] = [];
-
-    if (config.providers?.tuya) {
-      const localDevices = this.loadLocalTuyaDevices();
-      if (localDevices) {
-        this.log.info(`Initializing Tuya provider (LAN, ${localDevices.length} devices)`);
-        providers.push(new TuyaLocalProvider(localDevices, {
-          warn: (m: string) => this.log.warn(m),
-          debug: (m: string) => this.log.debug(m),
-        }));
-      } else {
-        this.log.info('Initializing Tuya provider (cloud, preview)');
-        this.log.warn(
-          'Tuya cloud provider requires an active IoT Core subscription. ' +
-          'Free trial is 1 month, paid is ~$800/yr — if that has lapsed, expect ' +
-          '"subscription expired" discovery failures. Consider the Alexa cookie ' +
-          'provider for free hobbyist control of Smart Life-linked devices.',
-        );
-        const tuya = new TuyaProvider(config.providers.tuya, {
-          info: (m: string) => this.log.info(m),
-          warn: (m: string) => this.log.warn(m),
-          debug: (m: string) => this.log.debug(m),
-        });
-        // Propagate MQTT-pushed state changes to DeviceManager so accessories
-        // and proactive reporters update in real time (no polling lag).
-        tuya.onStateChange((deviceId, state) => {
-          const fullId = `tuya:${deviceId}`;
-          this.deviceManager?.updateCache(fullId, state);
-          this.updateHomeKitAccessory(fullId, state);
-        });
-        tuya.start();
-        providers.push(tuya);
-      }
-    }
 
     if (config.providers?.alexa) {
       this.log.info('Initializing Alexa provider');
@@ -277,22 +158,8 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
           providers.push(new AlexaProvider(alexaClient, config.providers.alexa));
         } catch (err) {
           this.log.error('Alexa auth failed:', err);
-          this.log.warn('Alexa devices unavailable. Re-run alexa-cookie-cli and replace the cookie file.');
+          this.log.warn('Alexa devices unavailable. Re-run scripts/alexa-login-proxy.cjs to refresh the cookie.');
         }
-      }
-    }
-
-    if (config.providers?.resideo) {
-      this.log.info('Initializing Resideo provider');
-      try {
-        const resideoProvider = new ResideoProvider({
-          consumerKey: config.providers.resideo.consumerKey,
-          consumerSecret: config.providers.resideo.consumerSecret,
-          refreshToken: config.providers.resideo.refreshToken,
-        });
-        providers.push(resideoProvider);
-      } catch (err) {
-        this.log.error('Resideo initialization failed:', err);
       }
     }
 
@@ -357,42 +224,36 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
   }
 
   private startPolling(config: PluginConfig): void {
-    const providerIntervals: Record<string, number> = {
-      tuya: (config.providers?.tuya?.pollInterval ?? 30) * 1000,
-      alexa: (config.providers?.alexa?.pollInterval ?? 60) * 1000,
-      resideo: (config.providers?.resideo?.pollInterval ?? 120) * 1000,
-    };
+    // Alexa-only polling. The cookie API supports bulk queries, so we batch
+    // every Alexa device into a single request per tick. Other-provider polling
+    // (Tuya, Resideo) was removed in the 0.2 trim — those paths are gone.
+    const intervalMs = (config.providers?.alexa?.pollInterval ?? 60) * 1000;
+    const tickInterval = 15_000;
     const lastPollTime = new Map<string, number>();
-    const tickInterval = 15_000; // Check every 15s
-    const suppressedProviders = new Set<string>();
+    let circuitSuppressed = false;
 
     this.pollTimer = setInterval(async () => {
       if (!this.deviceManager) return;
 
       const now = Date.now();
-      const devices = this.deviceManager.getAllDevices();
-      const toPoll = devices.filter(device => {
-        const interval = providerIntervals[device.provider] ?? 60_000;
-        const lastPoll = lastPollTime.get(device.id) ?? 0;
-        return now - lastPoll >= interval;
-      });
-
+      const devices = this.deviceManager.getAllDevices()
+        .filter(d => d.provider === 'alexa');
+      const toPoll = devices.filter(d => now - (lastPollTime.get(d.id) ?? 0) >= intervalMs);
       if (toPoll.length === 0) return;
 
-      // Batch Alexa devices into a single bulk query instead of N individual calls
-      const alexaDevices = toPoll.filter(d => d.provider === 'alexa');
-      const otherDevices = toPoll.filter(d => d.provider !== 'alexa');
+      const alexaProvider = this.deviceManager.getProvider('alexa') as AlexaProvider | undefined;
+      if (!alexaProvider) return;
 
-      // Poll non-Alexa devices individually (Tuya, Resideo have their own batching)
-      const otherResults = await Promise.allSettled(
-        otherDevices.map(async (device) => {
+      try {
+        const deviceIds = toPoll.map(d => d.id.slice('alexa:'.length));
+        const states = await alexaProvider.getStates(deviceIds);
+
+        for (const device of toPoll) {
           lastPollTime.set(device.id, now);
-          this.deviceManager!.invalidateCache(device.id);
-          const state = await this.deviceManager!.getState(device.id);
-          if (suppressedProviders.has(device.provider)) {
-            suppressedProviders.delete(device.provider);
-            this.log.info(`${device.provider} provider: recovered`);
-          }
+          this.deviceManager.invalidateCache(device.id);
+          const localId = device.id.slice('alexa:'.length);
+          const state = states.get(localId) ?? {};
+          this.deviceManager.updateCache(device.id, state);
           const uuid = this.api.hap.uuid.generate(device.id);
           const accessory = this.cachedAccessories.get(uuid);
           if (accessory) {
@@ -401,84 +262,15 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
               Characteristic: this.Characteristic,
             });
           }
-        }),
-      );
-
-      // Poll Alexa devices in one bulk request
-      let alexaBulkResult: PromiseSettledResult<void> | undefined;
-      if (alexaDevices.length > 0) {
-        const alexaProvider = this.deviceManager!.getProvider('alexa') as AlexaProvider | undefined;
-        alexaBulkResult = await Promise.allSettled([
-          (async () => {
-            if (!alexaProvider) throw new Error('Alexa provider not found');
-            const deviceIds = alexaDevices.map(d => d.id.slice('alexa.'.length));
-            const states = await alexaProvider.getStates(deviceIds);
-            for (const device of alexaDevices) {
-              lastPollTime.set(device.id, now);
-              this.deviceManager!.invalidateCache(device.id);
-              const localId = device.id.slice('alexa.'.length);
-              const state = states.get(localId) ?? {};
-              this.deviceManager!.updateCache(device.id, state);
-              const uuid = this.api.hap.uuid.generate(device.id);
-              const accessory = this.cachedAccessories.get(uuid);
-              if (accessory) {
-                updateAccessoryState(accessory, device, state, {
-                  Service: this.Service,
-                  Characteristic: this.Characteristic,
-                });
-              }
-            }
-            if (suppressedProviders.has('alexa')) {
-              suppressedProviders.delete('alexa');
-              this.log.info('alexa provider: recovered');
-            }
-          })(),
-        ]).then(r => r[0]);
-      }
-
-      // Combine results for error reporting
-
-      // Group failures by provider
-      const failedProviders = new Map<string, number>();
-      const polledProviders = new Map<string, number>();
-      for (const device of otherDevices) {
-        polledProviders.set(device.provider, (polledProviders.get(device.provider) ?? 0) + 1);
-      }
-      for (let i = 0; i < otherResults.length; i++) {
-        if (otherResults[i].status === 'rejected') {
-          const provider = otherDevices[i].provider;
-          failedProviders.set(provider, (failedProviders.get(provider) ?? 0) + 1);
         }
-      }
-      if (alexaDevices.length > 0 && alexaBulkResult) {
-        polledProviders.set('alexa', alexaDevices.length);
-        if (alexaBulkResult.status === 'rejected') {
-          failedProviders.set('alexa', alexaDevices.length);
+        if (circuitSuppressed) {
+          circuitSuppressed = false;
+          this.log.info('alexa provider: recovered');
         }
-      }
-
-      for (const [provider, failCount] of failedProviders) {
-        const totalCount = polledProviders.get(provider) ?? 0;
-        const allFailed = failCount === totalCount;
-
-        // Always log the underlying reason on first failure, even when we're
-        // about to start suppressing — otherwise the actual cause (auth,
-        // ENDPOINT_UNREACHABLE, timeout) is invisible to anyone debugging.
-        if (!suppressedProviders.has(provider)) {
-          if (provider === 'alexa' && alexaBulkResult?.status === 'rejected') {
-            this.log.warn('Poll failed:', (alexaBulkResult as PromiseRejectedResult).reason);
-          } else {
-            for (let i = 0; i < otherDevices.length; i++) {
-              if (otherDevices[i].provider === provider && otherResults[i].status === 'rejected') {
-                this.log.warn('Poll failed:', (otherResults[i] as PromiseRejectedResult).reason);
-              }
-            }
-          }
-        }
-
-        if (allFailed && !suppressedProviders.has(provider)) {
-          suppressedProviders.add(provider);
-          this.log.warn(`${provider} provider: all ${failCount} device(s) failed — suppressing repeat logs`);
+      } catch (err) {
+        if (!circuitSuppressed) {
+          this.log.warn('Alexa poll failed:', err instanceof Error ? err.message : err);
+          circuitSuppressed = true;
         }
       }
     }, tickInterval);

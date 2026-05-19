@@ -94,7 +94,6 @@ export class CloudClient {
       response = (await handleAlexaDirective(
         row.directive_json as Parameters<typeof handleAlexaDirective>[0],
         this.deviceManager,
-        undefined, // stateReporter — cloud handles proactive reports via /alexa/state-change
       )) as Record<string, unknown>;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
