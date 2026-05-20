@@ -45,14 +45,28 @@ const alexaCookie = require('alexa-cookie2');
 
 const amazonPage = process.env.ALEXA_AMAZON_PAGE ?? 'amazon.com';
 const proxyBind = process.env.ALEXA_PROXY_BIND ?? '127.0.0.1';
+
 // proxyOwnIp is the hostname embedded in proxied URLs the browser hits.
-// When bound to loopback, the user reaches us via an SSH tunnel so the
-// browser's URL is localhost — use that. Otherwise default to the host's
-// mDNS name so a browser on the LAN can resolve it.
-const proxyHost = process.env.ALEXA_PROXY_HOST
-  ?? (proxyBind === '127.0.0.1' || proxyBind === 'localhost'
-    ? 'localhost'
-    : `${os.hostname()}.local`);
+function defaultProxyHost() {
+  // When bound to loopback the user reaches us via an SSH tunnel; browser
+  // URL is localhost.
+  if (proxyBind === '127.0.0.1' || proxyBind === 'localhost') return 'localhost';
+
+  // LAN-bound: prefer the first non-loopback IPv4 the box has — works on
+  // Docker (where hostname is the container hash and .local doesn't
+  // resolve) and on hosts whose hostname is "localhost" or contains
+  // characters mDNS won't handle. Falls back to `<hostname>.local` as a
+  // last resort.
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    if (!ifaces) continue;
+    for (const iface of ifaces) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return `${os.hostname()}.local`;
+}
+
+const proxyHost = process.env.ALEXA_PROXY_HOST ?? defaultProxyHost();
 const proxyPort = Number(process.env.ALEXA_PROXY_PORT ?? 3456);
 
 if (proxyBind !== '127.0.0.1' && proxyBind !== 'localhost') {

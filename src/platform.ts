@@ -30,6 +30,8 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
   private readonly cachedAccessories = new Map<string, PlatformAccessory>();
   private deviceManager?: DeviceManager;
   private pollTimer?: ReturnType<typeof setInterval>;
+  private rediscoveryTimer?: ReturnType<typeof setInterval>;
+  private readonly lastPollTime = new Map<string, number>();
   private supporter: SupporterState = { mode: 'free' };
   private cloudClient?: CloudClient;
   private stateChangePublisher?: StateChangePublisher;
@@ -57,6 +59,7 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
     this.api.on('shutdown', () => {
       if (this.pollTimer) clearInterval(this.pollTimer);
+      if (this.rediscoveryTimer) clearInterval(this.rediscoveryTimer);
       this.deviceManager?.dispose();
       void this.cloudClient?.stop();
       this.stateChangePublisher?.dispose();
@@ -81,7 +84,18 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
       warn: (msg) => this.log.warn(msg),
     });
     await this.discoverAndRegister();
+    // Warm the cache before iOS Home opens onGet handlers — otherwise the
+    // first color/brightness/etc onGet hits an empty cache and HAP shows
+    // defaults (off, 0%, no color). Also avoids the "M1" edge: AlexaProvider
+    // setColor sending brightness:100 because target.brightness was
+    // undefined on a fresh boot.
+    try {
+      await this.pollAllAlexaDevicesOnce();
+    } catch (err) {
+      this.log.debug('Initial cache warm-up failed:', err instanceof Error ? err.message : err);
+    }
     this.startPolling(pluginConfig);
+    this.startPeriodicRediscovery();
 
     // Supporter tier: connect to the cloud for managed Alexa Smart Home
     // Skill routing. The plugin works fully locally without this; the
@@ -247,13 +261,63 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
     }
   }
 
+  /**
+   * Re-run discovery on a long interval so newly-added Alexa devices show up
+   * in HomeKit without requiring a Homebridge restart. Runs every 6h by
+   * default; on success, prunes lastPollTime entries for devices that
+   * disappeared so the map can't grow unbounded.
+   *
+   * If the re-run discovery returns 0 devices but we have cached accessories,
+   * discoverAndRegister bails out (the transient-empty guard) — so a brief
+   * Amazon hiccup during the periodic refresh won't nuke iOS Home memberships.
+   */
+  private startPeriodicRediscovery(): void {
+    const REDISCOVERY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    this.rediscoveryTimer = setInterval(() => {
+      this.discoverAndRegister()
+        .then(() => this.pruneStaleLastPollTime())
+        .catch(err => this.log.warn('Periodic rediscovery failed:', err instanceof Error ? err.message : err));
+    }, REDISCOVERY_INTERVAL_MS);
+  }
+
+  /**
+   * One-shot bulk poll for every Alexa device. Used to warm the cache at
+   * startup so the very first iOS Home open doesn't hit cold-cache defaults.
+   * Same body as the polling tick; throws on Alexa failure (caller decides
+   * whether that's fatal).
+   */
+  private async pollAllAlexaDevicesOnce(): Promise<void> {
+    if (!this.deviceManager) return;
+    const devices = this.deviceManager.getAllDevices().filter(d => d.provider === 'alexa');
+    if (devices.length === 0) return;
+    const alexaProvider = this.deviceManager.getProvider('alexa') as AlexaProvider | undefined;
+    if (!alexaProvider) return;
+
+    const now = Date.now();
+    const deviceIds = devices.map(d => d.id.slice('alexa:'.length));
+    const states = await alexaProvider.getStates(deviceIds);
+    for (const device of devices) {
+      this.lastPollTime.set(device.id, now);
+      const localId = device.id.slice('alexa:'.length);
+      if (!states.has(localId)) continue;
+      this.deviceManager.updateCache(device.id, states.get(localId)!);
+    }
+  }
+
+  private pruneStaleLastPollTime(): void {
+    if (!this.deviceManager) return;
+    const live = new Set(this.deviceManager.getAllDevices().map(d => d.id));
+    for (const id of this.lastPollTime.keys()) {
+      if (!live.has(id)) this.lastPollTime.delete(id);
+    }
+  }
+
   private startPolling(config: PluginConfig): void {
     // Alexa-only polling. The cookie API supports bulk queries, so we batch
     // every Alexa device into a single request per tick. Other-provider polling
     // (Tuya, Resideo) was removed in the 0.2 trim — those paths are gone.
     const intervalMs = (config.providers?.alexa?.pollInterval ?? 60) * 1000;
     const tickInterval = 15_000;
-    const lastPollTime = new Map<string, number>();
     // Dedupe error logs by message so a sustained failure (expired cookie,
     // network blip) only logs once per distinct cause, but a NEW error
     // class is still visible. The inner AlexaClient circuit breaker handles
@@ -266,7 +330,7 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
       const now = Date.now();
       const devices = this.deviceManager.getAllDevices()
         .filter(d => d.provider === 'alexa');
-      const toPoll = devices.filter(d => now - (lastPollTime.get(d.id) ?? 0) >= intervalMs);
+      const toPoll = devices.filter(d => now - (this.lastPollTime.get(d.id) ?? 0) >= intervalMs);
       if (toPoll.length === 0) return;
 
       const alexaProvider = this.deviceManager.getProvider('alexa') as AlexaProvider | undefined;
@@ -277,7 +341,7 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
         const states = await alexaProvider.getStates(deviceIds);
 
         for (const device of toPoll) {
-          lastPollTime.set(device.id, now);
+          this.lastPollTime.set(device.id, now);
           const localId = device.id.slice('alexa:'.length);
           // Alexa returns a parallel errors array for endpoints that couldn't
           // respond (ENDPOINT_UNREACHABLE). For those, `states.get(localId)`

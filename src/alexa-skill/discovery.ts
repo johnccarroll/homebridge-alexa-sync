@@ -59,7 +59,11 @@ function buildCapabilities(device: BridgeDevice): object[] {
       case 'target-temperature':
         caps.push({
           type: 'AlexaInterface', interface: 'Alexa.ThermostatController', version: '3',
-          properties: { supported: [{ name: 'targetSetpoint' }], proactivelyReported: false, retrievable: true },
+          properties: {
+            supported: [{ name: 'targetSetpoint' }, { name: 'thermostatMode' }],
+            proactivelyReported: false,
+            retrievable: true,
+          },
         });
         break;
       case 'lock':

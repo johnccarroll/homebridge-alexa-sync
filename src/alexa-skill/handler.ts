@@ -29,7 +29,10 @@ export async function handleAlexaDirective(event: any, dm: DeviceManager): Promi
   // source of truth for directive responses. Cache-only is correct here.
 
   if (namespace === 'Alexa' && name === 'ReportState') {
-    const endpointId = directive.endpoint.endpointId;
+    const endpointId = directive.endpoint?.endpointId;
+    if (!endpointId) {
+      return buildErrorResponse('INVALID_DIRECTIVE', 'ReportState missing endpoint', correlationToken);
+    }
     const state = dm.getCachedState(endpointId) ?? {};
     return buildStateReportResponse(endpointId, correlationToken, state);
   }

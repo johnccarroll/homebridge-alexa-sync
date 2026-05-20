@@ -126,6 +126,21 @@ export class AlexaProvider implements DeviceProvider {
         colorTemperature: { value: state.colorTemperature },
       });
     }
+    if (state.locked !== undefined) {
+      actions.push({ action: state.locked ? 'lockAction' : 'unlockAction' });
+    }
+    if (state.targetTemperature !== undefined) {
+      actions.push({
+        action: 'setTargetTemperature',
+        targetTemperature: { value: state.targetTemperature, scale: 'CELSIUS' },
+      });
+    }
+    if (state.thermostatMode !== undefined) {
+      actions.push({
+        action: 'setThermostatMode',
+        thermostatMode: state.thermostatMode.toUpperCase(),
+      });
+    }
 
     for (const action of actions) {
       await this.client.executeAction(applianceId, action);

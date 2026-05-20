@@ -3,18 +3,49 @@ import { randomUUID } from 'node:crypto';
 
 export function extractStateFromDirective(directive: any): Partial<DeviceState> {
   const { namespace, name } = directive.header;
+  const payload = directive.payload;
 
   switch (namespace) {
     case 'Alexa.PowerController':
       return { on: name === 'TurnOn' };
+
     case 'Alexa.BrightnessController':
-      return { brightness: directive.payload.brightness };
+      if (typeof payload?.brightness !== 'number') return {};
+      return { brightness: payload.brightness };
+
     case 'Alexa.ColorController': {
-      const c = directive.payload.color;
+      const c = payload?.color;
+      if (!c || typeof c.hue !== 'number' || typeof c.saturation !== 'number') return {};
       return { hue: c.hue, saturation: Math.round(c.saturation * 100) };
     }
+
     case 'Alexa.ColorTemperatureController':
-      return { colorTemperature: directive.payload.colorTemperatureInKelvin };
+      if (typeof payload?.colorTemperatureInKelvin !== 'number') return {};
+      return { colorTemperature: payload.colorTemperatureInKelvin };
+
+    case 'Alexa.LockController':
+      // name is "Lock" or "Unlock"
+      return { locked: name === 'Lock' };
+
+    case 'Alexa.ThermostatController': {
+      const result: Partial<DeviceState> = {};
+      if (name === 'SetTargetTemperature' || name === 'AdjustTargetTemperature') {
+        const sp = payload?.targetSetpoint ?? payload?.targetSetpointDelta;
+        if (sp && typeof sp.value === 'number') {
+          const scale = (sp.scale as string)?.toUpperCase();
+          const celsius = scale === 'FAHRENHEIT' ? (sp.value - 32) * 5 / 9 : sp.value;
+          result.targetTemperature = Math.round(celsius * 10) / 10;
+        }
+      }
+      if (name === 'SetThermostatMode') {
+        const mode = (payload?.thermostatMode?.value as string)?.toLowerCase();
+        if (mode === 'heat' || mode === 'cool' || mode === 'auto' || mode === 'off') {
+          result.thermostatMode = mode;
+        }
+      }
+      return result;
+    }
+
     default:
       return {};
   }
@@ -55,6 +86,33 @@ function stateToProperties(state: DeviceState): object[] {
     props.push({
       namespace: 'Alexa.ColorTemperatureController', name: 'colorTemperatureInKelvin',
       value: state.colorTemperature, timeOfSample: now, uncertaintyInMilliseconds: 500,
+    });
+  }
+  if (state.locked !== undefined) {
+    props.push({
+      namespace: 'Alexa.LockController', name: 'lockState',
+      value: state.locked ? 'LOCKED' : 'UNLOCKED', timeOfSample: now, uncertaintyInMilliseconds: 500,
+    });
+  }
+  if (state.targetTemperature !== undefined) {
+    props.push({
+      namespace: 'Alexa.ThermostatController', name: 'targetSetpoint',
+      value: { value: state.targetTemperature, scale: 'CELSIUS' },
+      timeOfSample: now, uncertaintyInMilliseconds: 500,
+    });
+  }
+  if (state.thermostatMode !== undefined) {
+    props.push({
+      namespace: 'Alexa.ThermostatController', name: 'thermostatMode',
+      value: state.thermostatMode.toUpperCase(),
+      timeOfSample: now, uncertaintyInMilliseconds: 500,
+    });
+  }
+  if (state.temperature !== undefined) {
+    props.push({
+      namespace: 'Alexa.TemperatureSensor', name: 'temperature',
+      value: { value: state.temperature, scale: 'CELSIUS' },
+      timeOfSample: now, uncertaintyInMilliseconds: 500,
     });
   }
 

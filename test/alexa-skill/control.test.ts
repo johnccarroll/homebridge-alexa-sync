@@ -49,6 +49,62 @@ describe('extractStateFromDirective', () => {
     };
     expect(extractStateFromDirective(directive)).toEqual({ colorTemperature: 4000 });
   });
+
+  it('extracts Lock', () => {
+    const directive = {
+      header: { namespace: 'Alexa.LockController', name: 'Lock' },
+      endpoint: { endpointId: 'dev_001' },
+    };
+    expect(extractStateFromDirective(directive)).toEqual({ locked: true });
+  });
+
+  it('extracts Unlock', () => {
+    const directive = {
+      header: { namespace: 'Alexa.LockController', name: 'Unlock' },
+      endpoint: { endpointId: 'dev_001' },
+    };
+    expect(extractStateFromDirective(directive)).toEqual({ locked: false });
+  });
+
+  it('extracts SetTargetTemperature (Celsius)', () => {
+    const directive = {
+      header: { namespace: 'Alexa.ThermostatController', name: 'SetTargetTemperature' },
+      endpoint: { endpointId: 'dev_001' },
+      payload: { targetSetpoint: { value: 22, scale: 'CELSIUS' } },
+    };
+    expect(extractStateFromDirective(directive)).toEqual({ targetTemperature: 22 });
+  });
+
+  it('extracts SetTargetTemperature (Fahrenheit converts to Celsius)', () => {
+    const directive = {
+      header: { namespace: 'Alexa.ThermostatController', name: 'SetTargetTemperature' },
+      endpoint: { endpointId: 'dev_001' },
+      payload: { targetSetpoint: { value: 72, scale: 'FAHRENHEIT' } },
+    };
+    const result = extractStateFromDirective(directive);
+    expect(result.targetTemperature).toBeCloseTo(22.2, 1);
+  });
+
+  it('extracts SetThermostatMode', () => {
+    const directive = {
+      header: { namespace: 'Alexa.ThermostatController', name: 'SetThermostatMode' },
+      endpoint: { endpointId: 'dev_001' },
+      payload: { thermostatMode: { value: 'HEAT' } },
+    };
+    expect(extractStateFromDirective(directive)).toEqual({ thermostatMode: 'heat' });
+  });
+
+  it('returns empty on malformed color payload (defensive — caller catches)', () => {
+    const directive = {
+      header: { namespace: 'Alexa.ColorController', name: 'SetColor' },
+      endpoint: { endpointId: 'dev_001' },
+      payload: {},  // missing `color`
+    };
+    // Should not throw; returning {} lets the upstream handler send a clean
+    // ErrorResponse rather than a stack trace bubbling out.
+    expect(() => extractStateFromDirective(directive)).not.toThrow();
+    expect(extractStateFromDirective(directive)).toEqual({});
+  });
 });
 
 describe('buildControlResponse', () => {
@@ -76,5 +132,22 @@ describe('buildStateReportResponse', () => {
     expect(connectivity.value).toEqual({ value: 'OK' });
     const power = response.context.properties.find((p: any) => p.namespace === 'Alexa.PowerController');
     expect(power.value).toBe('OFF');
+  });
+
+  it('reports lockState when state.locked is set', () => {
+    const response = buildStateReportResponse('dev_001', 'corr', { locked: true } as DeviceState);
+    const lock = response.context.properties.find((p: any) => p.namespace === 'Alexa.LockController');
+    expect(lock).toBeDefined();
+    expect(lock.value).toBe('LOCKED');
+  });
+
+  it('reports thermostatMode + targetSetpoint when set', () => {
+    const state: DeviceState = { thermostatMode: 'heat', targetTemperature: 21.5 };
+    const response = buildStateReportResponse('dev_001', 'corr', state);
+    const propsByNs = Object.fromEntries(
+      response.context.properties.map((p: any) => [`${p.namespace}.${p.name}`, p]),
+    );
+    expect(propsByNs['Alexa.ThermostatController.thermostatMode'].value).toBe('HEAT');
+    expect(propsByNs['Alexa.ThermostatController.targetSetpoint'].value).toEqual({ value: 21.5, scale: 'CELSIUS' });
   });
 });

@@ -122,6 +122,11 @@ export function alexaStateToDeviceState(state: AlexaDeviceState): DeviceState {
     result.temperature = toC(t.value, t.scale);
   }
 
+  const lock = state['Alexa.LockController'];
+  if (lock?.lockState !== undefined) {
+    result.locked = lock.lockState === 'LOCKED';
+  }
+
   const thermostat = state['Alexa.ThermostatController'];
   if (thermostat?.targetSetpoint) {
     const t = thermostat.targetSetpoint as { value: number; scale: string };
