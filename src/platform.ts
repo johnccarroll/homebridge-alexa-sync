@@ -15,7 +15,8 @@ import { DeviceManager } from './device-manager.js';
 import type { DeviceProvider } from './providers/provider.js';
 import { AlexaProvider } from './providers/alexa/index.js';
 import { AlexaClient } from './providers/alexa/client.js';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { atomicWrite } from './util/atomic-write.js';
 import { configureAccessory, updateAccessoryState } from './accessory.js';
 import { loadSupporterState, type SupporterState } from './supporter/index.js';
 import { CloudClient } from './cloud/client.js';
@@ -147,7 +148,7 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
             // 0o600: cookie holds Amazon session + macDms (controls the
             // account's smart home). World-readable on multi-user hosts
             // would let any local user impersonate the Amazon account.
-            writeFileSync(cookiePath, JSON.stringify(toSave), { mode: 0o600 });
+            atomicWrite(cookiePath, JSON.stringify(toSave), { mode: 0o600 });
           } catch (err) {
             this.log.warn('Failed to save refreshed Alexa cookie:', err);
           }
@@ -159,7 +160,7 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
           const cookieData = alexaClient.getCookieData();
           if (cookieData) {
-            try { writeFileSync(cookiePath, JSON.stringify(cookieData), { mode: 0o600 }); } catch { /* ignore */ }
+            try { atomicWrite(cookiePath, JSON.stringify(cookieData), { mode: 0o600 }); } catch { /* ignore */ }
           }
 
           providers.push(new AlexaProvider(alexaClient, config.providers.alexa));
@@ -179,6 +180,22 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
     this.log.info('Discovering devices...');
     const devices = await this.deviceManager.discoverAll();
     this.log.info(`Discovered ${devices.length} device(s)`);
+
+    // Never nuke every cached accessory on a transient empty discovery. A
+    // brief Amazon outage or rate-limit can make discoverAll return 0; if we
+    // unregister everything, iOS Home loses room assignments / scene
+    // memberships / automations, and they don't come back on re-register
+    // because UUIDs are recomputed from device.id (which is stable, but the
+    // HomeKit-side metadata isn't).
+    if (devices.length === 0 && this.cachedAccessories.size > 0) {
+      this.log.warn(
+        `Discovery returned 0 devices but ${this.cachedAccessories.size} ` +
+        'are cached — keeping cached accessories rather than unregistering. ' +
+        'If this was a real removal, restart Homebridge after confirming the ' +
+        'devices are actually gone from your Alexa account.',
+      );
+      return;
+    }
 
     const activeUUIDs = new Set<string>();
 
@@ -261,9 +278,16 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
         for (const device of toPoll) {
           lastPollTime.set(device.id, now);
-          this.deviceManager.invalidateCache(device.id);
           const localId = device.id.slice('alexa:'.length);
-          const state = states.get(localId) ?? {};
+          // Alexa returns a parallel errors array for endpoints that couldn't
+          // respond (ENDPOINT_UNREACHABLE). For those, `states.get(localId)`
+          // is undefined — overwriting the cache with `{}` would make the
+          // next onGet return defaults (off, 0% brightness) and the Home app
+          // would flip the device to off every poll. Keep the last known
+          // state instead; let HAP show stale until the device recovers.
+          if (!states.has(localId)) continue;
+          this.deviceManager.invalidateCache(device.id);
+          const state = states.get(localId)!;
           this.deviceManager.updateCache(device.id, state);
           const uuid = this.api.hap.uuid.generate(device.id);
           const accessory = this.cachedAccessories.get(uuid);

@@ -4,9 +4,10 @@
 // the cloud keeps only the most-recent install_id's WebSocket alive,
 // older ones get DUPLICATE_CONNECTION errors.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { atomicWrite } from '../util/atomic-write.js';
 
 const FILE_NAME = '.alexa-sync-install-id';
 
@@ -22,7 +23,7 @@ export function loadOrCreateInstallId(storagePath: string): string {
   }
   const id = randomUUID();
   try {
-    writeFileSync(path, id, { encoding: 'utf8', mode: 0o600 });
+    atomicWrite(path, id, { encoding: 'utf8', mode: 0o600 });
   } catch {
     // If we can't write, we still return a valid id for this session.
     // On next startup a new id will be generated — acceptable fallback.

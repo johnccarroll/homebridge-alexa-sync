@@ -119,8 +119,10 @@ alexaCookie.generateAlexaCookie(
       process.exit(1);
     }
     const toSave = { ...result, amazonPage };
-    // 0o600 — see SECURITY note at the top of this file.
-    fs.writeFileSync(cookiePath, JSON.stringify(toSave), { mode: 0o600 });
+    // Atomic write via tmp + rename(2). 0o600 — see SECURITY note at the top.
+    const tmpPath = `${cookiePath}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(toSave), { mode: 0o600 });
+    fs.renameSync(tmpPath, cookiePath);
     process.stderr.write(`\nCookie saved to ${cookiePath} (mode 0600)\nRestart Homebridge to load it.\n`);
     process.exit(0);
   },

@@ -1,7 +1,7 @@
 {
   "name": "homebridge-alexa-sync",
   "displayName": "Alexa Sync",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Homebridge plugin that mirrors Alexa-linked smart-home devices (Smart Life, Sengled, Hue, etc.) into HomeKit via a captured Amazon session cookie. Part of the Switchboard smart-home family.",
   "type": "module",
   "main": "dist/index.js",
