@@ -141,6 +141,120 @@ describe('AlexaClient', () => {
       await client.queryDeviceState('app-id');
       expect(client.isHealthy()).toBe(true);
     });
+
+    it('bulk path opens after 5 consecutive failures', async () => {
+      const mock = createMockRemote();
+      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+        cb(new Error('bulk network error'), null);
+      });
+      const client = AlexaClient.__createForTest(mock as any);
+
+      for (let i = 0; i < 5; i++) {
+        await client.queryDeviceStates(['app-id']).catch(() => {});
+      }
+      expect(client.isHealthy()).toBe(false);
+      await expect(client.queryDeviceStates(['app-id'])).rejects.toThrow('Alexa circuit open');
+    });
+
+    it('counts single + bulk failures separately — alternating 4+4 does NOT trip the breaker', async () => {
+      // Pre-fix bug: the two paths shared `consecutiveFailures`, so 4 single
+      // fails + 4 bulk fails accumulated to 8 and tripped the breaker at the
+      // 5th overall failure even though no single path had hit threshold.
+      // After the fix: each path has its own counter and either hitting 5
+      // opens the breaker. 4+4 means max-per-path = 4, breaker stays closed.
+      const mock = createMockRemote();
+      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+        cb(new Error('network blip'), null);
+      });
+      const client = AlexaClient.__createForTest(mock as any);
+
+      for (let i = 0; i < 4; i++) {
+        await client.queryDeviceState('app-id').catch(() => {});
+        await client.queryDeviceStates(['app-id']).catch(() => {});
+      }
+      expect(client.isHealthy()).toBe(true);
+    });
+
+    it('sustained outage on both paths still opens at 5 per-path failures', async () => {
+      // The other end of the spec: if both paths individually hit threshold,
+      // the breaker still opens.
+      const mock = createMockRemote();
+      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+        cb(new Error('sustained outage'), null);
+      });
+      const client = AlexaClient.__createForTest(mock as any);
+
+      for (let i = 0; i < 5; i++) {
+        await client.queryDeviceState('app-id').catch(() => {});
+        await client.queryDeviceStates(['app-id']).catch(() => {});
+      }
+      expect(client.isHealthy()).toBe(false);
+    });
+
+    it('success on either path resets only its own counter — not the other', async () => {
+      // Independence: if single is failing but bulk works, single counter
+      // continues to accumulate. The opposite for bulk.
+      const mock = createMockRemote();
+      let count = 0;
+      mock.querySmarthomeDevices = vi.fn((ids: any, _type: any, _timeout: any, cb: Function) => {
+        count++;
+        if (ids.length === 1) {
+          // Single path: always fail
+          cb(new Error('single broken'), null);
+        } else {
+          // Bulk path: always succeed
+          cb(null, { deviceStates: [{ capabilityStates: [] }], errors: [] });
+        }
+      });
+      const client = AlexaClient.__createForTest(mock as any);
+
+      // Interleave: single fails, bulk succeeds — repeat 4 times. Single
+      // counter should be at 4, bulk at 0, breaker still closed.
+      for (let i = 0; i < 4; i++) {
+        await client.queryDeviceState('app-id').catch(() => {});
+        await client.queryDeviceStates(['app-id', 'app-id-2']).catch(() => {});
+      }
+      expect(client.isHealthy()).toBe(true);
+
+      // One more single fail — single hits 5 → breaker opens.
+      await client.queryDeviceState('app-id').catch(() => {});
+      expect(client.isHealthy()).toBe(false);
+    });
+
+    it('half-open recovery resets BOTH counters so the other path does not immediately re-open', async () => {
+      // Real race that motivated this: single path opens the breaker. Time
+      // passes. A bulk query in half-open mode succeeds. If bulk's success
+      // only reset bulk's counter, single's counter would still be at 5 and
+      // the very next single-path call would re-open the breaker. Reset
+      // both on circuit close.
+      const mock = createMockRemote();
+      let bulkCallCount = 0;
+      mock.querySmarthomeDevices = vi.fn((ids: any, _type: any, _timeout: any, cb: Function) => {
+        if (ids.length === 1) {
+          // Single path: always fail. Caller decides whether to call it.
+          cb(new Error('single fails'), null);
+        } else {
+          bulkCallCount++;
+          cb(null, { deviceStates: [{ capabilityStates: [] }], errors: [] });
+        }
+      });
+      const client = AlexaClient.__createForTest(mock as any);
+
+      // 5 single fails open the breaker.
+      for (let i = 0; i < 5; i++) {
+        await client.queryDeviceState('app-id').catch(() => {});
+      }
+      expect(client.isHealthy()).toBe(false);
+
+      // Probe interval passes.
+      (client as any).circuitOpenedAt = Date.now() - (5 * 60 * 1000 + 1);
+
+      // Bulk probe succeeds — circuit closes. Both counters must reset.
+      await client.queryDeviceStates(['a', 'b']);
+      expect(client.isHealthy()).toBe(true);
+      expect((client as any).consecutiveFailuresSingle).toBe(0);
+      expect((client as any).consecutiveFailuresBulk).toBe(0);
+    });
   });
 
   describe('isAuthenticated', () => {

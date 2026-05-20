@@ -57,9 +57,52 @@ export class AlexaClient {
   private remote: AlexaRemoteInstance;
   private initialized = false;
   private readonly config: AlexaClientConfig;
-  private consecutiveFailures = 0;
+  // Per-path failure counters. Single (queryDeviceState, called by HomeKit
+  // cache misses) and bulk (queryDeviceStates, called by the poll tick) each
+  // track their own consecutive-fail streak so a network blip during which
+  // both paths are in flight doesn't double-count toward the breaker
+  // threshold. Either reaching CIRCUIT_BREAKER_THRESHOLD opens the breaker.
+  // A successful query resets that path's counter; closing the breaker
+  // (half-open probe succeeded) resets both so the path that didn't probe
+  // can't immediately re-open the breaker on its first attempt.
+  private consecutiveFailuresSingle = 0;
+  private consecutiveFailuresBulk = 0;
   private circuitOpen = false;
   private circuitOpenedAt = 0;
+
+  private maybeOpenCircuit(): void {
+    if (this.circuitOpen) return;
+    if (this.consecutiveFailuresSingle < CIRCUIT_BREAKER_THRESHOLD
+        && this.consecutiveFailuresBulk < CIRCUIT_BREAKER_THRESHOLD) return;
+    this.circuitOpen = true;
+    this.circuitOpenedAt = Date.now();
+    const warn = this.config.warnLogger ?? this.config.logger;
+    const worst = Math.max(this.consecutiveFailuresSingle, this.consecutiveFailuresBulk);
+    warn?.(
+      `Alexa polling paused after ${worst} consecutive failures — will probe every 5 minutes`,
+    );
+    this.isAuthenticated().then(
+      (authed) => {
+        if (!authed) {
+          warn?.('Alexa authentication appears invalid — re-login required via proxy');
+        }
+      },
+      () => { /* ignore auth check errors */ },
+    );
+  }
+
+  private onSuccessfulQuery(): void {
+    // If we were open, this is the half-open probe succeeding — close the
+    // breaker AND reset both counters so the path that didn't probe can't
+    // immediately re-open the breaker. If we weren't open, just clear noise.
+    if (this.circuitOpen) {
+      this.circuitOpen = false;
+      this.consecutiveFailuresSingle = 0;
+      this.consecutiveFailuresBulk = 0;
+      const warn = this.config.warnLogger ?? this.config.logger;
+      warn?.('Alexa connection recovered — resuming polls');
+    }
+  }
 
   constructor(config: AlexaClientConfig) {
     this.config = config;
@@ -158,34 +201,12 @@ export class AlexaClient {
 
     try {
       const state = await this.queryDeviceStateInternal(applianceId);
-      if (this.circuitOpen) {
-        const warn = this.config.warnLogger ?? this.config.logger;
-        warn?.('Alexa connection recovered — resuming polls');
-      }
-      this.consecutiveFailures = 0;
-      this.circuitOpen = false;
+      this.consecutiveFailuresSingle = 0;
+      this.onSuccessfulQuery();
       return state;
     } catch (err) {
-      this.consecutiveFailures++;
-      if (!this.circuitOpen && this.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-        this.circuitOpen = true;
-        this.circuitOpenedAt = Date.now();
-        const warn = this.config.warnLogger ?? this.config.logger;
-        warn?.(
-          `Alexa polling paused after ${this.consecutiveFailures} consecutive failures — will probe every 5 minutes`,
-        );
-        // Check auth status to give the user actionable info
-        this.isAuthenticated().then(
-          (authed) => {
-            if (!authed) {
-              warn?.(
-                'Alexa authentication appears invalid — re-login required via proxy',
-              );
-            }
-          },
-          () => { /* ignore auth check errors */ },
-        );
-      }
+      this.consecutiveFailuresSingle++;
+      this.maybeOpenCircuit();
       throw err;
     }
   }
@@ -203,31 +224,12 @@ export class AlexaClient {
 
     try {
       const result = await this.queryDeviceStatesInternal(applianceIds);
-      if (this.circuitOpen) {
-        const warn = this.config.warnLogger ?? this.config.logger;
-        warn?.('Alexa connection recovered — resuming polls');
-      }
-      this.consecutiveFailures = 0;
-      this.circuitOpen = false;
+      this.consecutiveFailuresBulk = 0;
+      this.onSuccessfulQuery();
       return result;
     } catch (err) {
-      this.consecutiveFailures++;
-      if (!this.circuitOpen && this.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-        this.circuitOpen = true;
-        this.circuitOpenedAt = Date.now();
-        const warn = this.config.warnLogger ?? this.config.logger;
-        warn?.(
-          `Alexa polling paused after ${this.consecutiveFailures} consecutive failures — will probe every 5 minutes`,
-        );
-        this.isAuthenticated().then(
-          (authed) => {
-            if (!authed) {
-              warn?.('Alexa authentication appears invalid — re-login required via proxy');
-            }
-          },
-          () => { /* ignore auth check errors */ },
-        );
-      }
+      this.consecutiveFailuresBulk++;
+      this.maybeOpenCircuit();
       throw err;
     }
   }
@@ -353,7 +355,8 @@ export class AlexaClient {
     const client = Object.create(AlexaClient.prototype) as AlexaClient;
     (client as any).remote = mockRemote;
     (client as any).initialized = true;
-    (client as any).consecutiveFailures = 0;
+    (client as any).consecutiveFailuresSingle = 0;
+    (client as any).consecutiveFailuresBulk = 0;
     (client as any).circuitOpen = false;
     (client as any).circuitOpenedAt = 0;
     (client as any).config = {
