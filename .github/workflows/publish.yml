@@ -38,7 +38,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          # Node 24 ships with npm 11. Node 22 ships with npm 10 which has a
+          # known OIDC bug (https://github.com/npm/cli/issues/8730) producing
+          # "404 PUT" *after* the provenance step succeeds.
+          node-version: 24
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci || npm install
       - run: npm test
