@@ -95,13 +95,17 @@ export class DeviceManager {
 
   async setState(deviceId: string, state: Partial<DeviceState>): Promise<void> {
     const { provider, localId } = this.resolveDevice(deviceId);
-    await provider.setState(localId, state);
 
-    // Optimistic cache update
+    // Merge first so the provider sees the full desired state. Necessary for
+    // APIs that replace rather than patch — e.g. Alexa's setColor takes a
+    // full HSB and a hue-only partial would otherwise default the other two
+    // axes to 0/100.
     const cached = this.stateCache.get(deviceId);
     const merged = { ...(cached?.state ?? {}), ...state };
-    this.stateCache.set(deviceId, { state: merged, timestamp: Date.now() });
 
+    await provider.setState(localId, state, merged);
+
+    this.stateCache.set(deviceId, { state: merged, timestamp: Date.now() });
     this.onChangeCallback?.(deviceId, merged);
   }
 

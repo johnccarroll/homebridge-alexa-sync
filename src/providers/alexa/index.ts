@@ -90,7 +90,7 @@ export class AlexaProvider implements DeviceProvider {
     return result;
   }
 
-  async setState(deviceId: string, state: Partial<DeviceState>): Promise<void> {
+  async setState(deviceId: string, state: Partial<DeviceState>, target?: DeviceState): Promise<void> {
     const applianceId = this.applianceIds.get(deviceId);
     if (!applianceId) throw new Error(`Unknown Alexa device: ${deviceId}`);
 
@@ -103,12 +103,20 @@ export class AlexaProvider implements DeviceProvider {
       actions.push({ action: 'setBrightness', brightness: state.brightness });
     }
     if (state.hue !== undefined || state.saturation !== undefined) {
+      // Alexa's setColor takes a full HSB and *replaces* the bulb's color
+      // state. Use the merged target whenever the caller provided one so a
+      // hue-only partial doesn't snap saturation to 100% or brightness to
+      // full. Without a target, fall back to safe defaults but the
+      // DeviceManager hands one in for every real call.
+      const hue = state.hue ?? target?.hue ?? 0;
+      const saturationPct = state.saturation ?? target?.saturation ?? 100;
+      const brightnessPct = target?.brightness ?? state.brightness ?? 100;
       actions.push({
         action: 'setColor',
         color: {
-          hue: state.hue ?? 0,
-          saturation: (state.saturation ?? 100) / 100,
-          brightness: 1.0,
+          hue,
+          saturation: saturationPct / 100,
+          brightness: brightnessPct / 100,
         },
       });
     }

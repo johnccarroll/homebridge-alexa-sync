@@ -141,7 +141,13 @@ describe('DeviceManager', () => {
       await manager.discoverAll();
 
       await manager.setState('tuya:dev_001', { on: false });
-      expect(provider.setState).toHaveBeenCalledWith('dev_001', { on: false });
+      // Provider receives the partial diff + the merged target so APIs that
+      // replace state (Alexa setColor) can fill unchanged axes from the target.
+      expect(provider.setState).toHaveBeenCalledWith(
+        'dev_001',
+        { on: false },
+        expect.objectContaining({ on: false }),
+      );
     });
   });
 

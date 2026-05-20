@@ -104,6 +104,69 @@ describe('AlexaProvider', () => {
       await provider.setState('amzn1.alexa.endpoint.abc123', { on: true, brightness: 50 });
       expect(client.executeAction).toHaveBeenCalledTimes(2);
     });
+
+    it('hue-only change preserves cached brightness + saturation in setColor', async () => {
+      // Real-world: user dims a colored light to 40%, sets it to saturated red
+      // (h=0, s=100), then nudges the hue slider to magenta (h=300). The hue
+      // nudge in iOS Home sends only `{ hue: 300 }` — the plugin must NOT
+      // snap brightness back to 100% or saturation to anything other than what
+      // was last known. Alexa's setColor action takes a full HSB and replaces
+      // device state; partial diffs from HomeKit have to be merged before send.
+      const client = mockClient([LIGHT_DEVICE]);
+      const provider = new AlexaProvider(client, {});
+      await provider.discover();
+
+      const target = { on: true, brightness: 40, hue: 300, saturation: 100 };
+      await provider.setState(
+        'amzn1.alexa.endpoint.abc123',
+        { hue: 300 },
+        target,
+      );
+
+      const colorCall = (client.executeAction as any).mock.calls.find(
+        ([, action]: [string, Record<string, unknown>]) => action.action === 'setColor',
+      );
+      expect(colorCall).toBeDefined();
+      const color = colorCall[1].color as { hue: number; saturation: number; brightness: number };
+      expect(color.hue).toBe(300);
+      expect(color.saturation).toBeCloseTo(1.0, 5);     // 100% from target
+      expect(color.brightness).toBeCloseTo(0.4, 5);     // 40% from target, NOT 1.0
+    });
+
+    it('saturation-only change preserves cached hue + brightness in setColor', async () => {
+      const client = mockClient([LIGHT_DEVICE]);
+      const provider = new AlexaProvider(client, {});
+      await provider.discover();
+
+      const target = { on: true, brightness: 60, hue: 180, saturation: 50 };
+      await provider.setState(
+        'amzn1.alexa.endpoint.abc123',
+        { saturation: 50 },
+        target,
+      );
+
+      const colorCall = (client.executeAction as any).mock.calls.find(
+        ([, action]: [string, Record<string, unknown>]) => action.action === 'setColor',
+      );
+      const color = colorCall[1].color;
+      expect(color.hue).toBe(180);
+      expect(color.saturation).toBeCloseTo(0.5, 5);
+      expect(color.brightness).toBeCloseTo(0.6, 5);
+    });
+
+    it('color change without a target falls back to safe defaults (back-compat)', async () => {
+      // Older callers may not pass a target. Behavior should still be sane —
+      // not crash, not split the user's setup.
+      const client = mockClient([LIGHT_DEVICE]);
+      const provider = new AlexaProvider(client, {});
+      await provider.discover();
+
+      await provider.setState('amzn1.alexa.endpoint.abc123', { hue: 240 });
+      const colorCall = (client.executeAction as any).mock.calls.find(
+        ([, action]: [string, Record<string, unknown>]) => action.action === 'setColor',
+      );
+      expect(colorCall[1].color.hue).toBe(240);
+    });
   });
 
   describe('dispose', () => {
