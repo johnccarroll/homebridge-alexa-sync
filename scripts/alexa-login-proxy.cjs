@@ -102,6 +102,28 @@ function resolveCookiePath() {
 
 const cookiePath = resolveCookiePath();
 
+// The cookie is written mode 0600, so if this script runs as root (a very easy
+// mistake — the storage dir lives under /var/lib) the file ends up root-owned
+// and the Homebridge user simply cannot read it. The plugin then reports "no
+// cookie" and sits idle indefinitely. Hand the file to whoever owns the
+// storage directory, which is the account Homebridge actually runs as.
+function handOffOwnership(filePath) {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return null;
+  try {
+    const dir = fs.statSync(path.dirname(filePath));
+    if (dir.uid === 0) return null;
+    fs.chownSync(filePath, dir.uid, dir.gid);
+    return `${dir.uid}:${dir.gid}`;
+  } catch (e) {
+    process.stderr.write(
+      `\n⚠  Running as root and could not hand the cookie to the Homebridge user: ${e.message}\n`
+      + `   Fix it manually or Homebridge will not be able to read the file:\n`
+      + `     sudo chown <homebridge-user>:<group> ${filePath}\n\n`,
+    );
+    return null;
+  }
+}
+
 alexaCookie.generateAlexaCookie(
   '',
   '',
@@ -137,7 +159,11 @@ alexaCookie.generateAlexaCookie(
     const tmpPath = `${cookiePath}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(toSave), { mode: 0o600 });
     fs.renameSync(tmpPath, cookiePath);
-    process.stderr.write(`\nCookie saved to ${cookiePath} (mode 0600)\nRestart Homebridge to load it.\n`);
+    const owner = handOffOwnership(cookiePath);
+    process.stderr.write(
+      `\nCookie saved to ${cookiePath} (mode 0600${owner ? `, owner ${owner}` : ''})\n`
+      + 'Restart Homebridge to load it.\n',
+    );
     process.exit(0);
   },
 );

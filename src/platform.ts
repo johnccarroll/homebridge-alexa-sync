@@ -133,20 +133,20 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
       const cookiePath = `${this.api.user.storagePath()}/.alexa-sync-cookie.json`;
 
       let storedCookie: any;
+      let cookieError: NodeJS.ErrnoException | undefined;
       try {
         storedCookie = JSON.parse(readFileSync(cookiePath, 'utf8'));
         storedCookie.amazonPage = amazonDomain;
-      } catch {
-        // No stored cookie — fall through and emit setup guidance below
+      } catch (err) {
+        // Keep the errno. Collapsing every failure into "no cookie" sends
+        // people hunting for a missing file when the real cause is a cookie
+        // that exists but is owned by another user (the usual outcome of
+        // running the login script under sudo) or is corrupt.
+        cookieError = err as NodeJS.ErrnoException;
       }
 
       if (!storedCookie) {
-        this.log.warn(
-          `No Alexa cookie at ${cookiePath}. SSH to this host and run ` +
-          '`node /var/lib/homebridge/node_modules/homebridge-alexa-sync/scripts/alexa-login-proxy.cjs`. ' +
-          'The script prints a URL to open in any browser — sign in with Amazon ' +
-          'there and the cookie is captured automatically. Restart Homebridge after.',
-        );
+        this.log.warn(this.describeCookieProblem(cookiePath, cookieError));
       } else {
         const alexaClient = new AlexaClient({
           amazonDomain,
@@ -186,6 +186,28 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
     }
 
     return providers;
+  }
+
+  /** Turn a cookie-load failure into guidance that names the actual problem.
+   *  EACCES in particular is the common one and used to be indistinguishable
+   *  from "file not found". */
+  private describeCookieProblem(cookiePath: string, err?: NodeJS.ErrnoException): string {
+    const runIt = 'Run `node '
+      + '/var/lib/homebridge/node_modules/homebridge-alexa-sync/scripts/alexa-login-proxy.cjs` '
+      + 'on this host (see the README for the SSH port-forward), then restart Homebridge.';
+
+    if (err?.code === 'EACCES' || err?.code === 'EPERM') {
+      return `Alexa cookie at ${cookiePath} exists but is not readable by the `
+        + `Homebridge user (${err.code}). This usually means the login script was run `
+        + `under sudo, leaving the file owned by root. Fix the owner — e.g. `
+        + `\`sudo chown $(stat -c '%U:%G' ${cookiePath.replace(/\/[^/]+$/, '')}) ${cookiePath}\` `
+        + '— and restart Homebridge. Do not re-run the login script as root.';
+    }
+    if (err && err.code !== 'ENOENT') {
+      return `Alexa cookie at ${cookiePath} could not be read (${err.code ?? err.message}). `
+        + `If the file is corrupt, delete it and re-capture. ${runIt}`;
+    }
+    return `No Alexa cookie at ${cookiePath}. ${runIt}`;
   }
 
   private async discoverAndRegister(): Promise<void> {
