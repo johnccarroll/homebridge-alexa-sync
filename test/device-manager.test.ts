@@ -39,40 +39,35 @@ describe('DeviceManager', () => {
       expect(devices.map(d => d.provider)).toEqual(['tuya', 'resideo']);
     });
 
-    it('deduplicates devices by name, preferring direct API providers', async () => {
-      const tuyaLight: BridgeDevice = {
-        ...LIGHT,
-        id: 'tuya:dev_001',
-        name: 'Bedroom 1',
-        provider: 'tuya',
+    // Replaces an older test that asserted cross-provider name dedupe with
+    // tuya/resideo winning over alexa. Those providers were removed in 0.2, and
+    // the surviving name dedupe silently merged distinct Alexa devices that
+    // share a friendly name — Alexa permits "Lamp" in two different rooms.
+    it('keeps distinct devices that share a friendly name', async () => {
+      const lampA: BridgeDevice = {
+        ...LIGHT, id: 'alexa:amzn1.endpoint.aaa', name: 'Lamp', provider: 'alexa',
       };
-      const alexaLight: BridgeDevice = {
-        ...LIGHT,
-        id: 'alexa:amzn1.endpoint.xyz',
-        name: 'Bedroom 1',
-        provider: 'alexa',
-      };
-      const alexaOnly: BridgeDevice = {
-        ...LIGHT,
-        id: 'alexa:amzn1.endpoint.sengled',
-        name: 'Floor Lamp',
-        provider: 'alexa',
+      const lampB: BridgeDevice = {
+        ...LIGHT, id: 'alexa:amzn1.endpoint.bbb', name: 'Lamp', provider: 'alexa',
       };
 
-      const p1 = mockProvider('tuya', [tuyaLight]);
-      const p2 = mockProvider('alexa', [alexaLight, alexaOnly]);
-
-      const manager = new DeviceManager([p1, p2]);
+      const manager = new DeviceManager([mockProvider('alexa', [lampA, lampB])]);
       const devices = await manager.discoverAll();
 
       expect(devices).toHaveLength(2);
-      // Bedroom 1 should come from Tuya (higher priority), not Alexa
-      const bedroom = devices.find(d => d.name === 'Bedroom 1');
-      expect(bedroom!.provider).toBe('tuya');
-      expect(bedroom!.id).toBe('tuya:dev_001');
-      // Floor Lamp only exists in Alexa, so it stays
-      const floorLamp = devices.find(d => d.name === 'Floor Lamp');
-      expect(floorLamp!.provider).toBe('alexa');
+      expect(devices.map(d => d.id).sort()).toEqual([
+        'alexa:amzn1.endpoint.aaa',
+        'alexa:amzn1.endpoint.bbb',
+      ]);
+    });
+
+    it('collapses genuine duplicates that share a device id', async () => {
+      const dupe: BridgeDevice = {
+        ...LIGHT, id: 'alexa:amzn1.endpoint.aaa', name: 'Lamp', provider: 'alexa',
+      };
+
+      const manager = new DeviceManager([mockProvider('alexa', [dupe, { ...dupe }])]);
+      expect(await manager.discoverAll()).toHaveLength(1);
     });
 
     it('handles provider discovery failure gracefully', async () => {

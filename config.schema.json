@@ -50,7 +50,7 @@
                 "title": "Device Types to Import",
                 "type": "array",
                 "items": { "type": "string" },
-                "default": ["LIGHT", "SWITCH", "SMARTPLUG", "THERMOSTAT"]
+                "default": ["LIGHT", "SWITCH", "SMARTPLUG", "SMARTLOCK", "FAN", "THERMOSTAT"]
               }
             }
           }

@@ -43,29 +43,14 @@ export class DeviceManager {
       }
     }
 
-    // Deduplicate by name — prefer direct API providers over fallback
-    const PROVIDER_PRIORITY: Record<string, number> = {
-      tuya: 10,
-      resideo: 10,
-      alexa: 1, // cookie-based fallback — lowest priority
-    };
-
-    const byName = new Map<string, BridgeDevice>();
+    // Key by device id, not by name. The multi-provider name dedupe that used
+    // to live here was written for the Tuya/Resideo providers removed in 0.2 —
+    // with Alexa as the only provider it did nothing but collapse genuinely
+    // distinct devices that happen to share a friendly name (Alexa allows
+    // duplicates across groups, e.g. two "Lamp"s in different rooms). Alexa's
+    // own multi-skill duplicates are already resolved in AlexaProvider.discover,
+    // which picks the best applianceId per name before we ever see them.
     for (const device of allDevices) {
-      const key = device.name.trim().toLowerCase();
-      const existing = byName.get(key);
-      if (!existing) {
-        byName.set(key, device);
-      } else {
-        const existingPriority = PROVIDER_PRIORITY[existing.provider] ?? 5;
-        const newPriority = PROVIDER_PRIORITY[device.provider] ?? 5;
-        if (newPriority > existingPriority) {
-          byName.set(key, device);
-        }
-      }
-    }
-
-    for (const device of byName.values()) {
       this.devices.set(device.id, device);
     }
 
