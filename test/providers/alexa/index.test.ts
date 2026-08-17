@@ -177,4 +177,41 @@ describe('AlexaProvider', () => {
       expect(client.dispose).toHaveBeenCalled();
     });
   });
+
+  // Rediscovery runs every 6h for the life of the process. The appliance-id
+  // maps used to only ever grow: a device deleted from the Alexa account kept
+  // its mapping forever, so getState on it queried a dead applianceId instead
+  // of failing fast with "Unknown Alexa device".
+  describe('rediscovery', () => {
+    it('forgets devices that disappeared from the account', async () => {
+      const client = mockClient([LIGHT_DEVICE]);
+      const provider = new AlexaProvider(client, {});
+      await provider.discover();
+
+      // Device still known after the first pass.
+      await expect(provider.getState(LIGHT_DEVICE.id)).resolves.toBeDefined();
+
+      // Second discovery no longer returns it.
+      (client.discoverDevices as any).mockResolvedValue([]);
+      await provider.discover();
+
+      await expect(provider.getState(LIGHT_DEVICE.id))
+        .rejects.toThrow(/Unknown Alexa device/);
+    });
+
+    it('does not accumulate stale entries in the bulk-state path', async () => {
+      const client = mockClient([LIGHT_DEVICE]);
+      const provider = new AlexaProvider(client, {});
+      (client as any).queryDeviceStates = vi.fn().mockResolvedValue(new Map());
+
+      await provider.discover();
+      (client.discoverDevices as any).mockResolvedValue([]);
+      await provider.discover();
+
+      // No known appliance ids left, so no query should be attempted at all.
+      const result = await provider.getStates([LIGHT_DEVICE.id]);
+      expect(result.size).toBe(0);
+      expect((client as any).queryDeviceStates).not.toHaveBeenCalled();
+    });
+  });
 });

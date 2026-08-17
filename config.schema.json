@@ -32,7 +32,7 @@
                   { "title": "AU (amazon.com.au)", "enum": ["amazon.com.au"] }
                 ]
               },
-              "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 60 },
+              "pollInterval": { "title": "Poll Interval (seconds)", "type": "number", "default": 60, "minimum": 15, "description": "The poll loop ticks every 15s, so values below 15 behave the same as 15." },
               "cookieRefreshDays": { "title": "Cookie Refresh Interval (days)", "type": "number", "default": 14 },
               "deviceTypes": {
                 "title": "Device Types to Import",

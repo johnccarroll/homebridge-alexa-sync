@@ -255,9 +255,17 @@ function configureThermostatAccessory(
       return state.temperature ?? 20;
     });
 
-  // Target Temperature
+  // Target Temperature. Take the bounds from the device's own capability
+  // rather than hardcoding HomeKit's 10–37 — the mapper reports 10–35 for
+  // Alexa thermostats, and advertising a range wider than the device accepts
+  // just lets the user pick a setpoint Alexa will reject.
+  const targetCap = device.capabilities.find(c => c.type === 'target-temperature');
+  const [minTarget, maxTarget] = targetCap && 'range' in targetCap
+    ? targetCap.range
+    : [10, 35];
+
   service.getCharacteristic(hap.Characteristic.TargetTemperature)
-    .setProps({ minValue: 10, maxValue: 37, minStep: 0.5 })
+    .setProps({ minValue: minTarget, maxValue: maxTarget, minStep: 0.5 })
     .onGet(async (): Promise<CharacteristicValue> => {
       const state = await getState(device.id);
       return state.targetTemperature ?? 20;

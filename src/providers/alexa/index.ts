@@ -22,6 +22,15 @@ export class AlexaProvider implements DeviceProvider {
   async discover(): Promise<BridgeDevice[]> {
     const alexaDevices = await this.client.discoverDevices();
 
+    // Rebuild the id maps from scratch. Rediscovery runs every 6h forever, so
+    // merging into the previous maps meant they only ever grew, and a device
+    // deleted from the Alexa account kept a mapping to a dead applianceId —
+    // getState would query it rather than failing fast as an unknown device.
+    // Cleared here rather than at the top of the method so a failed discovery
+    // (which throws above) leaves the previous, working maps intact.
+    this.applianceIds.clear();
+    this.reverseApplianceIds.clear();
+
     // Group raw Alexa entries by friendlyName so we can pick the best
     // applianceId per device. Smart-home devices commonly surface multiple
     // times — once via the native Smart Life skill (applianceId prefixed
