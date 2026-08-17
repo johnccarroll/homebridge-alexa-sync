@@ -24,6 +24,7 @@ interface AlexaRemoteInstance {
     entityType: string,
     callback: (err: Error | null, result: any) => void,
   ): void;
+  stopProxyServer(callback?: (err?: Error | null) => void): void;
 }
 
 export interface AlexaClientConfig {
@@ -136,10 +137,26 @@ export class AlexaClient {
           usePushConnection: false,
           useWsMqtt: false,
           logger: this.config.logger,
+          // When the stored cookie is too stale to refresh, alexa-remote2 asks
+          // alexa-cookie2 to mint a new one. With no email/password that lands
+          // in a branch (alexa-cookie.js ~L378) which starts an interactive
+          // Amazon-login proxy *unconditionally* — `setupProxy: false` does not
+          // reach it. Worse, proxyListenBind is only defaulted inside the
+          // skipped setupProxy branch, so it arrives at proxy.js's
+          // `app.listen(port, undefined)` and binds every interface. Pinning it
+          // to loopback means the window is at least not LAN-reachable; the
+          // error path below then tears the server down. Do not remove either
+          // half without re-checking those upstream lines.
+          proxyOwnIp: '127.0.0.1',
+          proxyListenBind: '127.0.0.1',
         },
         (err: Error | null) => {
           if (err) {
-            reject(new Error(`Alexa auth failed: ${err.message ?? ''}`));
+            // Tear down any proxy the failed init left listening. Without this
+            // it survives for the life of the Homebridge process, and a new
+            // pair leaks on every restart.
+            this.stopProxyServerSafely();
+            reject(new Error(this.describeInitError(err)));
           } else {
             this.initialized = true;
             resolve();
@@ -147,6 +164,27 @@ export class AlexaClient {
         },
       );
     });
+  }
+
+  /** alexa-remote2's "please open http://…" prompt assumes a human watching a
+   *  terminal. In Homebridge it's noise pointing at a port we just closed —
+   *  replace it with the step that actually fixes things. */
+  private describeInitError(err: Error): string {
+    const raw = err.message ?? '';
+    if (/Please open http/i.test(raw)) {
+      return 'Alexa cookie is expired or was rejected by Amazon. Re-run '
+        + '`node scripts/alexa-login-proxy.cjs` on the Homebridge host to capture '
+        + 'a fresh one, then restart Homebridge.';
+    }
+    return `Alexa auth failed: ${raw}`;
+  }
+
+  private stopProxyServerSafely(): void {
+    try {
+      this.remote.stopProxyServer?.(() => { /* best effort */ });
+    } catch {
+      // Older alexa-remote2 builds may not expose it — nothing to clean up.
+    }
   }
 
   getCookieData(): CookieData | null {
@@ -347,6 +385,7 @@ export class AlexaClient {
   }
 
   dispose(): void {
+    this.stopProxyServerSafely();
     this.remote.removeAllListeners?.();
     this.initialized = false;
   }

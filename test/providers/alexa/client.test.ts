@@ -26,8 +26,69 @@ function createMockRemote() {
       errors: [],
     })),
     executeSmarthomeDeviceAction: vi.fn((_ids: any, _params: any, _type: any, cb: Function) => cb(null, { controlResponses: [{}] })),
+    stopProxyServer: vi.fn((cb?: Function) => cb && cb()),
   };
 }
+
+// Regression guard for the leaked login proxy. alexa-cookie2 starts an
+// interactive Amazon-login HTTP server whenever it is asked for a cookie
+// without credentials, and that branch ignores `setupProxy: false`. If init
+// fails we must (a) have pinned the listener to loopback and (b) shut it down,
+// or every Homebridge restart with a stale cookie strands another world-
+// reachable Amazon login form on a random port.
+describe('AlexaClient.init — leaked login proxy', () => {
+  function clientWithMock(mock: ReturnType<typeof createMockRemote>) {
+    const client = AlexaClient.__createForTest(mock as any);
+    (client as any).initialized = false;
+    return client;
+  }
+
+  const STORED = { localCookie: 'c', macDms: { device_private_key: 'k', adp_token: 't' } };
+
+  it('binds the fallback proxy to loopback rather than every interface', async () => {
+    const mock = createMockRemote();
+    mock.init = vi.fn((_opts: any, cb: Function) => cb(null));
+    const client = clientWithMock(mock);
+
+    await client.init(STORED as any);
+
+    const opts = (mock.init as any).mock.calls[0][0];
+    expect(opts.proxyListenBind).toBe('127.0.0.1');
+    expect(opts.proxyOwnIp).toBe('127.0.0.1');
+  });
+
+  it('stops the proxy server when init fails', async () => {
+    const mock = createMockRemote();
+    mock.init = vi.fn((_opts: any, cb: Function) =>
+      cb(new Error('Please open http://undefined:43573/ with your browser')));
+    const client = clientWithMock(mock);
+
+    await expect(client.init(STORED as any)).rejects.toThrow();
+    expect(mock.stopProxyServer).toHaveBeenCalled();
+  });
+
+  it('replaces the unusable "please open http://…" prompt with the real fix', async () => {
+    const mock = createMockRemote();
+    mock.init = vi.fn((_opts: any, cb: Function) =>
+      cb(new Error('Please open http://undefined:43573/ with your browser and login to Amazon.')));
+    const client = clientWithMock(mock);
+
+    const err = await client.init(STORED as any).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/alexa-login-proxy\.cjs/);
+    // The dead port and the "open this URL" instruction must not survive.
+    expect((err as Error).message).not.toMatch(/43573/);
+    expect((err as Error).message).not.toMatch(/Please open/i);
+  });
+
+  it('passes through auth errors that are not the proxy prompt', async () => {
+    const mock = createMockRemote();
+    mock.init = vi.fn((_opts: any, cb: Function) => cb(new Error('no csrf found')));
+    const client = clientWithMock(mock);
+
+    await expect(client.init(STORED as any)).rejects.toThrow(/no csrf found/);
+  });
+});
 
 describe('AlexaClient', () => {
   describe('discoverDevices', () => {
