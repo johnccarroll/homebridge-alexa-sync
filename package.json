@@ -2,7 +2,7 @@
   "name": "homebridge-alexa-sync",
   "displayName": "Alexa Sync",
   "version": "0.3.0",
-  "description": "Homebridge plugin that mirrors Alexa-linked smart-home devices (Smart Life, Sengled, Hue, etc.) into HomeKit via a captured Amazon session cookie. Part of the Switchboard smart-home family.",
+  "description": "Homebridge plugin that mirrors Alexa-linked smart-home devices (Smart Life, Sengled, Hue, etc.) into HomeKit via a captured Amazon session cookie.",
   "type": "module",
   "main": "dist/index.js",
   "files": [
@@ -17,8 +17,7 @@
     "alexa",
     "smart-life",
     "smart-home",
-    "homekit",
-    "switchboard"
+    "homekit"
   ],
   "author": "John Carroll (@johnccarroll)",
   "license": "MIT",
@@ -48,7 +47,6 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.104.1",
     "alexa-cookie2": "^5.0.3",
     "alexa-remote2": "^8.0.4"
   }

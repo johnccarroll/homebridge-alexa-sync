@@ -11,18 +11,6 @@
         "type": "string",
         "default": "Alexa Sync"
       },
-      "cloud": {
-        "title": "Alexa voice control (optional)",
-        "description": "Leave this empty unless you need it. Mirroring your Alexa devices into HomeKit needs nothing here. This is only for the reverse direction — giving Alexa voice control over Homebridge accessories that aren't already in your Alexa account. Link your account at https://cloud.johncarroll.dev/switchboard and paste the token below. It's verified offline against an embedded public key; no device data or email leaves your network.",
-        "type": "object",
-        "properties": {
-          "token": {
-            "title": "Account Link Token",
-            "type": "string",
-            "x-schema-form": { "type": "textarea" }
-          }
-        }
-      },
       "providers": {
         "title": "Providers",
         "type": "object",

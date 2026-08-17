@@ -10,7 +10,7 @@ import type {
 } from 'homebridge';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
 import type { PluginConfig } from './config.js';
-import { validateConfig, describeRemovedKeys, resolveCloudConfig } from './config.js';
+import { validateConfig, describeRemovedKeys } from './config.js';
 import { DeviceManager } from './device-manager.js';
 import type { DeviceProvider } from './providers/provider.js';
 import { AlexaProvider } from './providers/alexa/index.js';
@@ -18,10 +18,6 @@ import { AlexaClient } from './providers/alexa/client.js';
 import { readFileSync } from 'node:fs';
 import { atomicWrite } from './util/atomic-write.js';
 import { configureAccessory, updateAccessoryState } from './accessory.js';
-import { loadCloudLink, type CloudLink } from './cloud/link.js';
-import { CloudClient } from './cloud/client.js';
-import { StateChangePublisher } from './cloud/state-change.js';
-import { loadOrCreateInstallId } from './cloud/install-id.js';
 
 export class AlexaSyncPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
@@ -32,9 +28,6 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
   private pollTimer?: ReturnType<typeof setInterval>;
   private rediscoveryTimer?: ReturnType<typeof setInterval>;
   private readonly lastPollTime = new Map<string, number>();
-  private cloudLink: CloudLink = { enabled: false };
-  private cloudClient?: CloudClient;
-  private stateChangePublisher?: StateChangePublisher;
 
   constructor(
     public readonly log: Logging,
@@ -61,8 +54,6 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
       if (this.pollTimer) clearInterval(this.pollTimer);
       if (this.rediscoveryTimer) clearInterval(this.rediscoveryTimer);
       this.deviceManager?.dispose();
-      void this.cloudClient?.stop();
-      this.stateChangePublisher?.dispose();
     });
   }
 
@@ -72,8 +63,6 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
   private async init(): Promise<void> {
     const pluginConfig = this.config as unknown as PluginConfig;
-    const cloudConfig = resolveCloudConfig(pluginConfig);
-    this.cloudLink = loadCloudLink(cloudConfig, this.log);
     const providers = await this.createProviders(pluginConfig);
 
     if (providers.length === 0) {
@@ -97,33 +86,6 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
     }
     this.startPolling(pluginConfig);
     this.startPeriodicRediscovery();
-
-    // Optional cloud path: routes Alexa Smart Home directives back to this
-    // plugin for accessories that aren't already in the user's Alexa account.
-    // The plugin works fully locally without it; enabling it is opt-in via a
-    // valid account-link token.
-    if (this.cloudLink.enabled && cloudConfig?.token) {
-      try {
-        const installId = loadOrCreateInstallId(this.api.user.storagePath());
-        this.cloudClient = new CloudClient({
-          linkToken: cloudConfig.token,
-          installId,
-          deviceManager: this.deviceManager,
-          log: this.log,
-        });
-        await this.cloudClient.start();
-        this.stateChangePublisher = new StateChangePublisher({
-          linkToken: cloudConfig.token,
-          log: this.log,
-        });
-        this.deviceManager.onStateChange((deviceId, state) => {
-          this.stateChangePublisher?.publish(deviceId, state);
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.log.warn(`Cloud client failed to start: ${msg}. Running in local-only mode.`);
-      }
-    }
   }
 
   private async createProviders(config: PluginConfig): Promise<DeviceProvider[]> {

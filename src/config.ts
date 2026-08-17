@@ -5,30 +5,11 @@ export interface AlexaConfig {
   deviceTypes?: string[];
 }
 
-export interface CloudConfig {
-  /** Account-link JWT issued by the cloud during Alexa account linking.
-   *  Verified offline with an embedded Ed25519 public key — the plugin makes
-   *  no network call to verify. Absence of this field (or verification
-   *  failure) simply disables the optional cloud voice path; local
-   *  Alexa-to-HomeKit mirroring is unaffected. */
-  token?: string;
-}
-
 export interface PluginConfig {
   name: string;
   providers?: {
     alexa?: AlexaConfig;
   };
-  cloud?: CloudConfig;
-  /** @deprecated Renamed to `cloud` when the sponsor gate was removed.
-   *  Still read so existing configs keep working. */
-  supporter?: CloudConfig;
-}
-
-/** `cloud` is the current key; `supporter` is the pre-0.3 name. Prefer the new
- *  one but fall back, so upgrading doesn't silently drop a working link. */
-export function resolveCloudConfig(config: PluginConfig): CloudConfig | undefined {
-  return config.cloud ?? config.supporter;
 }
 
 export function validateConfig(config: Record<string, unknown>): config is PluginConfig & Record<string, unknown> {
@@ -50,6 +31,10 @@ export function validateConfig(config: Record<string, unknown>): config is Plugi
  */
 const REMOVED_TOP_LEVEL = ['alexaSkill', 'apiServer'] as const;
 const REMOVED_PROVIDERS = ['tuya', 'resideo'] as const;
+/** Both names for the managed-cloud voice path, retired in 0.3.0. Anyone who
+ *  had one configured loses voice control of Homebridge-only accessories, so
+ *  say that outright rather than ignoring the key in silence. */
+const REMOVED_CLOUD = ['cloud', 'supporter'] as const;
 
 export function describeRemovedKeys(config: Record<string, unknown>): string[] {
   const warnings: string[] = [];
@@ -58,6 +43,16 @@ export function describeRemovedKeys(config: Record<string, unknown>): string[] {
       warnings.push(
         `Config key \`${key}\` was removed in 0.2.0 and is now ignored. ` +
         'See the README for current setup.',
+      );
+    }
+  }
+  for (const key of REMOVED_CLOUD) {
+    if (config[key] !== undefined) {
+      warnings.push(
+        `Config key \`${key}\` was removed in 0.3.0 and is now ignored. The `
+        + 'managed cloud that provided Alexa voice control for Homebridge-only '
+        + 'accessories has been retired. Mirroring your Alexa devices into '
+        + 'HomeKit is unaffected and needs no token — you can delete this key.',
       );
     }
   }
