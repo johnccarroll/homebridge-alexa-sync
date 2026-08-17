@@ -64,6 +64,103 @@ export function configureAccessory(
   if (device.type === 'thermostat') {
     configureThermostatAccessory(accessory, device, hap, fastGetState, setState);
   }
+
+  // switch / outlet / fan are all "on-off plus maybe a level" in HAP terms.
+  // Alexa surfaces fan speed through the same `brightness` feature it uses for
+  // lights, so RotationSpeed rides on the brightness capability when present.
+  if (device.type === 'switch' || device.type === 'outlet' || device.type === 'fan') {
+    configureOnOffAccessory(accessory, device, hap, fastGetState, setState);
+  }
+
+  if (device.type === 'lock') {
+    configureLockAccessory(accessory, device, hap, fastGetState, setState);
+  }
+}
+
+/** HAP LockCurrentState / LockTargetState values. */
+const LOCK_UNSECURED = 0;
+const LOCK_SECURED = 1;
+const LOCK_UNKNOWN = 3;
+
+function onOffServiceFor(device: BridgeDevice, hap: HapTypes) {
+  switch (device.type) {
+    case 'outlet': return hap.Service.Outlet;
+    case 'fan': return hap.Service.Fan;
+    default: return hap.Service.Switch;
+  }
+}
+
+function configureOnOffAccessory(
+  accessory: PlatformAccessory,
+  device: BridgeDevice,
+  hap: HapTypes,
+  getState: GetState,
+  setState: SetState,
+): void {
+  const serviceType = onOffServiceFor(device, hap);
+  const service = accessory.getService(serviceType) || accessory.addService(serviceType);
+
+  service.getCharacteristic(hap.Characteristic.On)
+    .onGet(async (): Promise<CharacteristicValue> => {
+      const state = await getState(device.id);
+      return state.on ?? false;
+    })
+    .onSet(async (value: CharacteristicValue) => {
+      await setState(device.id, { on: value as boolean });
+    });
+
+  // OutletInUse is required on the Outlet service. We have no real power
+  // metering from Alexa, so mirror On rather than hardcoding true — an outlet
+  // that reads "in use" while off is worse than a slightly loose reading.
+  if (device.type === 'outlet') {
+    service.getCharacteristic(hap.Characteristic.OutletInUse)
+      .onGet(async (): Promise<CharacteristicValue> => {
+        const state = await getState(device.id);
+        return state.on ?? false;
+      });
+  }
+
+  if (device.type === 'fan' && device.capabilities.some(c => c.type === 'brightness')) {
+    service.getCharacteristic(hap.Characteristic.RotationSpeed)
+      .onGet(async (): Promise<CharacteristicValue> => {
+        const state = await getState(device.id);
+        return state.brightness ?? 0;
+      })
+      .onSet(async (value: CharacteristicValue) => {
+        await setState(device.id, { brightness: value as number });
+      });
+  }
+}
+
+function configureLockAccessory(
+  accessory: PlatformAccessory,
+  device: BridgeDevice,
+  hap: HapTypes,
+  getState: GetState,
+  setState: SetState,
+): void {
+  const service = accessory.getService(hap.Service.LockMechanism)
+    || accessory.addService(hap.Service.LockMechanism);
+
+  // `locked` undefined means we've never successfully read the lock. Reporting
+  // UNSECURED there would tell the user their door is open; UNKNOWN is the
+  // honest answer and HomeKit renders it as unavailable.
+  const toCurrent = (locked: boolean | undefined): number =>
+    locked === undefined ? LOCK_UNKNOWN : locked ? LOCK_SECURED : LOCK_UNSECURED;
+
+  service.getCharacteristic(hap.Characteristic.LockCurrentState)
+    .onGet(async (): Promise<CharacteristicValue> => toCurrent((await getState(device.id)).locked));
+
+  service.getCharacteristic(hap.Characteristic.LockTargetState)
+    .onGet(async (): Promise<CharacteristicValue> => {
+      // Target has no UNKNOWN member — fall back to SECURED so the tile isn't
+      // stuck mid-animation before the first read lands.
+      const { locked } = await getState(device.id);
+      return locked === false ? LOCK_UNSECURED : LOCK_SECURED;
+    })
+    .onSet(async (value: CharacteristicValue) => {
+      await setState(device.id, { locked: value === LOCK_SECURED });
+    });
 }
 
 function configureLightAccessory(
@@ -233,6 +330,34 @@ export function updateAccessoryState(
     }
     if (caps.has('color-temperature') && state.colorTemperature !== undefined) {
       service.updateCharacteristic(hap.Characteristic.ColorTemperature, kelvinToMired(state.colorTemperature));
+    }
+  }
+
+  if (device.type === 'switch' || device.type === 'outlet' || device.type === 'fan') {
+    const service = accessory.getService(onOffServiceFor(device, hap));
+    if (!service) return;
+
+    if (state.on !== undefined) {
+      service.updateCharacteristic(hap.Characteristic.On, state.on);
+      if (device.type === 'outlet') {
+        service.updateCharacteristic(hap.Characteristic.OutletInUse, state.on);
+      }
+    }
+    if (device.type === 'fan'
+      && state.brightness !== undefined
+      && device.capabilities.some(c => c.type === 'brightness')) {
+      service.updateCharacteristic(hap.Characteristic.RotationSpeed, state.brightness);
+    }
+  }
+
+  if (device.type === 'lock') {
+    const service = accessory.getService(hap.Service.LockMechanism);
+    if (!service) return;
+
+    if (state.locked !== undefined) {
+      const value = state.locked ? LOCK_SECURED : LOCK_UNSECURED;
+      service.updateCharacteristic(hap.Characteristic.LockCurrentState, value);
+      service.updateCharacteristic(hap.Characteristic.LockTargetState, value);
     }
   }
 
