@@ -48,6 +48,12 @@ Raspberry Pi image, Node isn't on the login PATH, so use the bundled one:
 
 The script prints `http://localhost:3456/`. Open it in any browser **on your laptop** (since you're forwarded), sign in with your Amazon account (**authenticator-app 2FA only — SMS won't survive the proxy**). The cookie is captured, saved to `<homebridge-storage>/.alexa-sync-cookie.json` with mode `0600`. Restart Homebridge.
 
+> **Getting `400 Bad Request — Request Header Or Cookie Too Large`?** Use a private/incognito
+> window. Cookies aren't scoped by port, so your browser sends every cookie it holds for
+> `localhost` — accumulated from every dev server you've ever run — to the proxy, and the
+> combined header exceeds the limit. A private window starts with an empty jar. (Clearing your
+> `localhost` cookies works too, but takes out your other local sessions.)
+
 If you really want LAN-wide exposure (e.g. you're logging in from a phone), set `ALEXA_PROXY_BIND=0.0.0.0` when running the script. The proxy will print a security warning. Anyone who can reach the bind address during the login window can snoop your Amazon credentials or steal the cookie — only do this on a network you trust.
 
 The plugin auto-refreshes the cookie every 14 days. If Amazon ever forces a re-login (password change, suspicious-activity flag), just re-run the script.

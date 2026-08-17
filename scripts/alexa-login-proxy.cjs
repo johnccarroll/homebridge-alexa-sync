@@ -100,6 +100,20 @@ function resolveCookiePath() {
   return path.join(os.homedir(), '.alexa-sync-cookie.json');
 }
 
+// alexa-cookie2's logger echoes every proxied request's full headers, cookie
+// jar included. Because cookies are not port-scoped, a browser sends *all* its
+// localhost cookies to this proxy — in practice that means unrelated dev-server
+// session tokens (Supabase auth JWTs, etc.) get written to whatever this
+// script's stderr points at. Redact anything cookie-shaped before it lands.
+// The lookbehind matters: every line this library emits is prefixed
+// "Alexa-Cookie:", which a naive /\bCookie:/ matches — that redacted the whole
+// log, including the "listening on port" line the user needs.
+function redact(msg) {
+  return String(msg)
+    .replace(/("cookie"\s*:\s*")[^"]*"/gi, '$1<redacted>"')
+    .replace(/(?<![-\w])(Cookie:\s*)[^\r\n]*/gi, '$1<redacted>');
+}
+
 const cookiePath = resolveCookiePath();
 
 // The cookie is written mode 0600, so if this script runs as root (a very easy
@@ -136,7 +150,7 @@ alexaCookie.generateAlexaCookie(
     proxyOwnIp: proxyHost,
     proxyPort,
     proxyListenBind: proxyBind,
-    logger: (msg) => process.stderr.write(`[alexa-cookie] ${msg}\n`),
+    logger: (msg) => process.stderr.write(`[alexa-cookie] ${redact(msg)}\n`),
   },
   (err, result) => {
     if (err && /Please open/.test(err.message ?? err)) {
