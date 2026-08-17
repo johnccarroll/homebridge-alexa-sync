@@ -105,13 +105,21 @@ function resolveCookiePath() {
 // localhost cookies to this proxy — in practice that means unrelated dev-server
 // session tokens (Supabase auth JWTs, etc.) get written to whatever this
 // script's stderr points at. Redact anything cookie-shaped before it lands.
-// The lookbehind matters: every line this library emits is prefixed
-// "Alexa-Cookie:", which a naive /\bCookie:/ matches — that redacted the whole
-// log, including the "listening on port" line the user needs.
+// The library emits cookies in three different shapes, and all three have been
+// observed carrying live session material:
+//   1. JSON request headers      {"cookie":"..."}
+//   2. A raw header line         Cookie: ...
+//   3. Its own summary line      Cookies handled: "frc=...; session-id=..."
+// (3) is the one that leaks Amazon's session-id / sst-main tokens.
+//
+// The lookbehind in (2) is load-bearing: every line this library emits is
+// prefixed "Alexa-Cookie:", which a naive /\bCookie:/ also matches — that
+// blanked the whole log, including the "listening on port" line users need.
 function redact(msg) {
   return String(msg)
-    .replace(/("cookie"\s*:\s*")[^"]*"/gi, '$1<redacted>"')
-    .replace(/(?<![-\w])(Cookie:\s*)[^\r\n]*/gi, '$1<redacted>');
+    .replace(/("(?:cookie|set-cookie)"\s*:\s*")[^"]*"/gi, '$1<redacted>"')
+    .replace(/(Cookies?\s+handled:\s*)"[^"]*"/gi, '$1"<redacted>"')
+    .replace(/(?<![-\w])((?:Set-)?Cookie:\s*)[^\r\n]*/gi, '$1<redacted>');
 }
 
 const cookiePath = resolveCookiePath();
