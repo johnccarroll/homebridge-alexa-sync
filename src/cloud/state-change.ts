@@ -13,12 +13,12 @@ const STATE_CHANGE_URL = 'https://cloud.johncarroll.dev/switchboard/alexa/state-
 const COALESCE_MS = 500;
 
 export class StateChangePublisher {
-  private readonly supporterToken: string;
+  private readonly linkToken: string;
   private readonly log: Logger;
   private readonly pending = new Map<string, { state: DeviceState; timer: ReturnType<typeof setTimeout> }>();
 
-  constructor(options: { supporterToken: string; log: Logger }) {
-    this.supporterToken = options.supporterToken;
+  constructor(options: { linkToken: string; log: Logger }) {
+    this.linkToken = options.linkToken;
     this.log = options.log;
   }
 
@@ -51,7 +51,7 @@ export class StateChangePublisher {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.supporterToken}`,
+          Authorization: `Bearer ${this.linkToken}`,
         },
         body: JSON.stringify({ deviceId, state }),
       });

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { createPrivateKey, sign as signRaw } from 'node:crypto';
-import { verifySupporterToken } from '../../src/supporter/verify.js';
+import { verifyLinkToken } from '../../src/cloud/verify-token.js';
 
 // Matched Ed25519 keypair for tests — NOT the production key. The plugin
-// embeds the production public key in src/supporter/verify.ts, so most of
+// embeds the production public key in src/cloud/verify-token.ts, so most of
 // these tests verify rejection paths. A single "happy path" test uses a
 // hand-crafted JWT signed with the PRODUCTION public key's matching
 // private key, supplied only as an env var so CI can validate signing
@@ -26,15 +26,15 @@ function makeToken(
   return `${signingInput}.${b64url(sig)}`;
 }
 
-describe('verifySupporterToken', () => {
+describe('verifyLinkToken', () => {
   it('rejects a malformed (non-3-part) token', () => {
-    expect(verifySupporterToken('not-a-jwt').ok).toBe(false);
-    expect(verifySupporterToken('a.b').ok).toBe(false);
-    expect(verifySupporterToken('').ok).toBe(false);
+    expect(verifyLinkToken('not-a-jwt').ok).toBe(false);
+    expect(verifyLinkToken('a.b').ok).toBe(false);
+    expect(verifyLinkToken('').ok).toBe(false);
   });
 
   it('rejects a token with non-JSON parts', () => {
-    const r = verifySupporterToken('xxx.yyy.zzz');
+    const r = verifyLinkToken('xxx.yyy.zzz');
     expect(r.ok).toBe(false);
   });
 
@@ -42,7 +42,7 @@ describe('verifySupporterToken', () => {
     const t =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0In0.' +
       'aaaabbbbccccdddd';
-    const r = verifySupporterToken(t);
+    const r = verifyLinkToken(t);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/unsupported alg/);
   });
@@ -58,7 +58,6 @@ describe('verifySupporterToken', () => {
           iss: 'https://cloud.johncarroll.dev',
           project: 'switchboard',
           sub: 'github:test',
-          tier: 5,
           iat: Math.floor(Date.now() / 1000),
           exp: Math.floor(Date.now() / 1000) + 3600,
         }),
@@ -66,16 +65,16 @@ describe('verifySupporterToken', () => {
     );
     const bogusSig = b64url(Buffer.alloc(64, 0));
     const t = `${headerB64}.${payloadB64}.${bogusSig}`;
-    const r = verifySupporterToken(t);
+    const r = verifyLinkToken(t);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/signature/);
   });
 
-  // Happy path + claim-level validation tests. Skipped unless SUPPORTER_TEST_PRIVATE_KEY
-  // (PEM-encoded Ed25519 private key, matched to the embedded public key) is present.
-  // Developers running locally can export the key from the sponsors-worker keys/
-  // directory to exercise these.
-  const testPriv = process.env.SUPPORTER_TEST_PRIVATE_KEY;
+  // Happy path + claim-level validation tests. Skipped unless
+  // LINK_TOKEN_TEST_PRIVATE_KEY (PEM-encoded Ed25519 private key, matched to
+  // the embedded public key) is present. Developers running locally can export
+  // the issuer's signing key to exercise these.
+  const testPriv = process.env.LINK_TOKEN_TEST_PRIVATE_KEY;
   const describeOrSkip = testPriv ? describe : describe.skip;
   describeOrSkip('with matching private key', () => {
     const now = () => Math.floor(Date.now() / 1000);
@@ -86,17 +85,15 @@ describe('verifySupporterToken', () => {
           iss: 'https://cloud.johncarroll.dev',
           project: 'switchboard',
           sub: 'github:testuser',
-          tier: 5,
           iat: now(),
           exp: now() + 3600,
         },
         testPriv!,
       );
-      const r = verifySupporterToken(t);
+      const r = verifyLinkToken(t);
       expect(r.ok).toBe(true);
       if (r.ok) {
         expect(r.claims.sub).toBe('github:testuser');
-        expect(r.claims.tier).toBe(5);
       }
     });
 
@@ -106,13 +103,12 @@ describe('verifySupporterToken', () => {
           iss: 'https://cloud.johncarroll.dev',
           project: 'switchboard',
           sub: 'github:testuser',
-          tier: 5,
           iat: now() - 7200,
           exp: now() - 3600,
         },
         testPriv!,
       );
-      const r = verifySupporterToken(t);
+      const r = verifyLinkToken(t);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.reason).toMatch(/expired/);
     });
@@ -123,15 +119,46 @@ describe('verifySupporterToken', () => {
           iss: 'https://evil.example.com',
           project: 'switchboard',
           sub: 'github:testuser',
-          tier: 5,
           iat: now(),
           exp: now() + 3600,
         },
         testPriv!,
       );
-      const r = verifySupporterToken(t);
+      const r = verifyLinkToken(t);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.reason).toMatch(/issuer/);
+    });
+
+    // The sponsor gate lived in a `tier` claim that had to be >= 1. It is gone:
+    // a token carrying no tier at all must verify, and an old token still
+    // carrying tier: 0 must not be rejected for it.
+    it('accepts a token with no tier claim', () => {
+      const t = makeToken(
+        {
+          iss: 'https://cloud.johncarroll.dev',
+          project: 'switchboard',
+          sub: 'github:testuser',
+          iat: now(),
+          exp: now() + 3600,
+        },
+        testPriv!,
+      );
+      expect(verifyLinkToken(t).ok).toBe(true);
+    });
+
+    it('accepts a legacy token whose tier would have failed the old gate', () => {
+      const t = makeToken(
+        {
+          iss: 'https://cloud.johncarroll.dev',
+          project: 'switchboard',
+          sub: 'github:testuser',
+          tier: 0,
+          iat: now(),
+          exp: now() + 3600,
+        },
+        testPriv!,
+      );
+      expect(verifyLinkToken(t).ok).toBe(true);
     });
 
     it('rejects an invalid sub claim', () => {
@@ -140,13 +167,12 @@ describe('verifySupporterToken', () => {
           iss: 'https://cloud.johncarroll.dev',
           project: 'switchboard',
           sub: 'something:else',
-          tier: 5,
           iat: now(),
           exp: now() + 3600,
         },
         testPriv!,
       );
-      const r = verifySupporterToken(t);
+      const r = verifyLinkToken(t);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.reason).toMatch(/sub/);
     });

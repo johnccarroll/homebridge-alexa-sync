@@ -5,11 +5,12 @@ export interface AlexaConfig {
   deviceTypes?: string[];
 }
 
-export interface SupporterConfig {
-  /** JWT issued by cloud.johncarroll.dev after a GitHub Sponsors check.
-   *  Verified offline with an embedded Ed25519 public key — the plugin
-   *  makes no network call to verify. Absence of this field (or verification
-   *  failure) = free mode with full plugin functionality. */
+export interface CloudConfig {
+  /** Account-link JWT issued by the cloud during Alexa account linking.
+   *  Verified offline with an embedded Ed25519 public key — the plugin makes
+   *  no network call to verify. Absence of this field (or verification
+   *  failure) simply disables the optional cloud voice path; local
+   *  Alexa-to-HomeKit mirroring is unaffected. */
   token?: string;
 }
 
@@ -18,7 +19,16 @@ export interface PluginConfig {
   providers?: {
     alexa?: AlexaConfig;
   };
-  supporter?: SupporterConfig;
+  cloud?: CloudConfig;
+  /** @deprecated Renamed to `cloud` when the sponsor gate was removed.
+   *  Still read so existing configs keep working. */
+  supporter?: CloudConfig;
+}
+
+/** `cloud` is the current key; `supporter` is the pre-0.3 name. Prefer the new
+ *  one but fall back, so upgrading doesn't silently drop a working link. */
+export function resolveCloudConfig(config: PluginConfig): CloudConfig | undefined {
+  return config.cloud ?? config.supporter;
 }
 
 export function validateConfig(config: Record<string, unknown>): config is PluginConfig & Record<string, unknown> {

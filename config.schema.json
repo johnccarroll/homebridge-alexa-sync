@@ -11,13 +11,13 @@
         "type": "string",
         "default": "Alexa Sync"
       },
-      "supporter": {
-        "title": "Switchboard Supporter License (optional)",
-        "description": "The plugin is fully free locally. A Switchboard supporter license unlocks Alexa Smart Home Skill voice control for Homebridge accessories that aren't already in your Alexa account. Sponsor at github.com/sponsors/johnccarroll ($3/mo, cancel anytime), then get your token at https://cloud.johncarroll.dev/switchboard and paste it below. Verified offline against an embedded public key — the plugin never sends your email or device data to any external server.",
+      "cloud": {
+        "title": "Alexa voice control (optional)",
+        "description": "Leave this empty unless you need it. Mirroring your Alexa devices into HomeKit needs nothing here. This is only for the reverse direction — giving Alexa voice control over Homebridge accessories that aren't already in your Alexa account. Link your account at https://cloud.johncarroll.dev/switchboard and paste the token below. It's verified offline against an embedded public key; no device data or email leaves your network.",
         "type": "object",
         "properties": {
           "token": {
-            "title": "Supporter Token",
+            "title": "Account Link Token",
             "type": "string",
             "x-schema-form": { "type": "textarea" }
           }

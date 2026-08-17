@@ -2,14 +2,16 @@
 
 Mirror your Alexa-linked smart-home devices into Apple HomeKit via Homebridge. Two-way state sync, one cookie, no vendor developer accounts.
 
-Part of the [Switchboard](https://cloud.johncarroll.dev/switchboard) smart-home plugin family.
+Free and MIT-licensed, with no paid tier and nothing gated behind sponsorship.
 
 ## What this gives you
 
 If you've linked any vendor account to Alexa (Smart Life, Hue, Sengled, etc.), this plugin scoops every device Alexa knows about into Homebridge and exposes them to HomeKit. Controls round-trip both ways: tap a light in iOS Home, it turns on; tell Alexa to dim it, HomeKit's state updates within ~60s.
 
+Lights, switches, plugs, fans, locks and thermostats are all supported.
+
 - **One source of truth (Alexa cookie path)** — no per-vendor cloud accounts, no expiring developer subscriptions. The plugin authenticates once with your Amazon account, then talks to Alexa's smart-home API like the Alexa web app does.
-- **Optional voice path via Switchboard** — for Homebridge accessories that aren't already in your Alexa account, the Switchboard managed cloud ($3/mo via GitHub Sponsors) hosts an Alexa Smart Home Skill that routes voice commands back to your plugin. Skip if all your devices are already Alexa-linked — they're already voice-controllable through the native skill.
+- **Optional voice path** — for Homebridge accessories that aren't already in your Alexa account, a hosted Alexa Smart Home Skill can route voice commands back to your plugin. Skip it if all your devices are already Alexa-linked; they're already voice-controllable through the native skill.
 
 ## Quick start
 
@@ -51,24 +53,27 @@ The plugin auto-refreshes the cookie every 14 days. If Amazon ever forces a re-l
 | `providers.alexa.amazonDomain` | `amazon.com`, `amazon.co.uk`, `amazon.de`, `amazon.ca`, `amazon.com.au` | `amazon.com` |
 | `providers.alexa.pollInterval` | State poll interval (seconds) | `60` |
 | `providers.alexa.cookieRefreshDays` | How often to refresh the captured cookie | `14` |
-| `providers.alexa.deviceTypes` | Which Alexa device categories to import | `["LIGHT", "SWITCH", "SMARTPLUG", "THERMOSTAT"]` |
-| `supporter.token` | Switchboard supporter JWT (optional voice path) | — |
+| `providers.alexa.deviceTypes` | Which Alexa device categories to import | `["LIGHT", "SWITCH", "SMARTPLUG", "SMARTLOCK", "FAN", "THERMOSTAT"]` |
+| `cloud.token` | Account-link token for the optional voice path | — |
 
 ## Caveats worth knowing
 
 - Alexa returns multiple entries for devices reachable via more than one skill. The plugin prefers the native vendor skill (`AAA_*` applianceIds) over user-installed custom skills (`SKILL_*`); the latter frequently return `ENDPOINT_UNREACHABLE` on state queries.
-- Don't keep a custom Alexa Smart Home Skill enabled in Alexa that points at this plugin while the Alexa cookie provider is also active — you'll create a query loop (skill → plugin → Alexa cookie → skill again). If you want voice via Alexa, the Switchboard supporter path below is the safe option.
+- Don't keep a custom Alexa Smart Home Skill enabled in Alexa that points at this plugin while the Alexa cookie provider is also active — you'll create a query loop (skill → plugin → Alexa cookie → skill again). If you want voice via Alexa, use the account-link path below instead.
 - The plugin assumes your Amazon account uses **authenticator-app 2FA**. SMS-based 2FA doesn't survive the cookie capture flow.
+- **Never run the login script with `sudo`.** The cookie is written mode `0600`, so a root-owned cookie is unreadable by the Homebridge user and the plugin will sit idle. Recent versions hand the file back to the storage directory's owner automatically, but running it as the Homebridge user is still the right move.
 
-## Optional: Switchboard managed voice ($3/mo)
+## Optional: Alexa voice control for Homebridge-only accessories
 
-If you have Homebridge accessories that *aren't* already in your Alexa account and you want voice control of them:
+Only needed if you have Homebridge accessories that *aren't* already in your Alexa account and you want to speak to them. Everything above works without this.
 
-1. Sponsor [@johnccarroll on GitHub Sponsors](https://github.com/sponsors/johnccarroll), enable the "Homebridge Sync" skill in your Alexa app.
-2. Visit `https://cloud.johncarroll.dev/switchboard`, grab your supporter token.
-3. Paste into the plugin's `supporter.token` config field.
+1. Enable the "Homebridge Sync" skill in your Alexa app and link your account.
+2. Visit `https://cloud.johncarroll.dev/switchboard` to get your account-link token.
+3. Paste it into the plugin's `cloud.token` config field.
 
-The plugin verifies the token offline against an embedded Ed25519 public key — your device data and email never leave your network. The cloud caches state via the plugin's push channel and answers Alexa ReportState within Alexa's 8s deadline. Cancel anytime; tokens last 35 days.
+The plugin verifies the token offline against an embedded Ed25519 public key — your device data and email never leave your network. The cloud caches state via the plugin's push channel and answers Alexa ReportState within Alexa's 8s deadline. Tokens last 35 days and are refreshed by re-linking.
+
+> Upgrading from an older version? The config key used to be `supporter.token`. That name still works, so existing setups keep running, but `cloud.token` is the current one.
 
 ## Architecture
 
@@ -79,8 +84,8 @@ The plugin verifies the token offline against an embedded Ed25519 public key —
 │             Device Manager                  │
 │   discovery, state cache, optimistic set    │
 ├──────────────────┬──────────────────────────┤
-│   Alexa cookie   │  optional supporter      │
-│   provider       │  cloud (Switchboard)     │
+│   Alexa cookie   │  optional voice path     │
+│   provider       │  (account-linked cloud)  │
 └────────┬─────────┴──────────┬───────────────┘
          │                    │
    alexa-remote2         Supabase Realtime

@@ -1,12 +1,12 @@
 // Plugin-side Supabase Realtime client. Subscribes to the directives
-// table for the signed-in sponsor + project, dispatches each incoming
+// table for the linked account + project, dispatches each incoming
 // directive to the existing Alexa handler, writes the response back to
-// the same row. Vercel's Alexa-skill endpoint sees the UPDATE via its
+// the same row. The cloud's Alexa-skill endpoint sees the UPDATE via its
 // own Realtime subscription and returns to Amazon.
 //
-// Activates only when a valid supporter JWT is present in config. In
-// free mode the client is never created — plugin runs Alexa-cookie
-// only.
+// Entirely optional, and only created when a valid account-link token is
+// present in config. Without one the plugin runs Alexa-cookie mirroring
+// only — which is all most setups need.
 
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
 import type { Logger } from 'homebridge';
@@ -28,7 +28,7 @@ interface DirectiveRow {
 }
 
 // How many consecutive CHANNEL_ERROR / TIMED_OUT events to tolerate before
-// we suspect the supporter JWT has expired or rotated and tell the user to
+// we suspect the link token has expired or rotated and tell the user to
 // refresh it. Each Realtime auto-reconnect attempt fires one event, so this
 // caps the noise floor before the actionable warning surfaces.
 const CHANNEL_ERROR_THRESHOLD = 5;
@@ -43,7 +43,7 @@ export class CloudClient {
   private reauthWarned = false;
 
   constructor(options: {
-    supporterToken: string;
+    linkToken: string;
     installId: string;
     deviceManager: DeviceManager;
     log: Logger;
@@ -58,7 +58,7 @@ export class CloudClient {
         headers: {
           // Supabase Realtime auth: session token carries project + sub claims
           // that the server-side RLS policies filter on.
-          Authorization: `Bearer ${options.supporterToken}`,
+          Authorization: `Bearer ${options.linkToken}`,
         },
       },
       realtime: { params: { eventsPerSecond: 20 } },
@@ -91,15 +91,15 @@ export class CloudClient {
             this.log.warn(`Cloud client: subscription ${status}. Will auto-retry.`);
           } else if (this.channelErrorCount >= CHANNEL_ERROR_THRESHOLD && !this.reauthWarned) {
             // After this many failed reconnects the most likely cause is an
-            // expired supporter token. Auto-refresh isn't supported here
-            // (token comes from config; rotating it requires the user); say
-            // so explicitly so the user knows what to do.
+            // expired link token. Auto-refresh isn't supported here (token
+            // comes from config; rotating it requires the user); say so
+            // explicitly so the user knows what to do.
             this.reauthWarned = true;
             this.log.warn(
-              `Cloud client: ${this.channelErrorCount} consecutive ${status} events — ` +
-              'supporter token has likely expired. Get a fresh token at ' +
-              'https://cloud.johncarroll.dev/switchboard, paste it into the ' +
-              "plugin's `supporter.token` config field, and restart Homebridge.",
+              `Cloud client: ${this.channelErrorCount} consecutive ${status} events — `
+              + 'the account-link token has likely expired. Re-link at '
+              + 'https://cloud.johncarroll.dev/switchboard, paste the new token into '
+              + "the plugin's `cloud.token` config field, and restart Homebridge.",
             );
           }
         }

@@ -1,6 +1,6 @@
 // Per-install UUID. Generated on first startup and persisted to the
 // Homebridge storage directory. Used to deduplicate connections when the
-// same sponsor JWT is deployed on multiple Homebridge installations —
+// same link token is deployed on multiple Homebridge installations —
 // the cloud keeps only the most-recent install_id's WebSocket alive,
 // older ones get DUPLICATE_CONNECTION errors.
 

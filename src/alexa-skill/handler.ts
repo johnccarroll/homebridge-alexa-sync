@@ -3,11 +3,11 @@ import { buildDiscoveryResponse } from './discovery.js';
 import { extractStateFromDirective, buildControlResponse, buildStateReportResponse } from './control.js';
 import { randomUUID } from 'node:crypto';
 
-// Dispatches Alexa Smart Home directives received via the Switchboard
-// supporter cloud (Supabase Realtime → plugin → response written back to
-// the same row). The supporter cloud handles Alexa.Authorization.AcceptGrant
-// + ChangeReport on its side; the plugin only sees Discovery / control /
-// ReportState directives here.
+// Dispatches Alexa Smart Home directives received via the optional cloud
+// path (Supabase Realtime → plugin → response written back to the same row).
+// The cloud handles Alexa.Authorization.AcceptGrant + ChangeReport on its
+// side; the plugin only sees Discovery / control / ReportState directives
+// here.
 
 export async function handleAlexaDirective(event: any, dm: DeviceManager): Promise<any> {
   const directive = event.directive;
