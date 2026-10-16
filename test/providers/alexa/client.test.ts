@@ -7,7 +7,6 @@ function createMockRemote() {
     on: vi.fn(),
     removeAllListeners: vi.fn(),
     cookieData: { cookie: 'test', csrf: 'test', macDms: { device_private_key: 'k', adp_token: 't' } },
-    checkAuthentication: vi.fn((cb: Function) => cb(null, { authenticated: true })),
     getSmarthomeDevicesV2: vi.fn((cb: Function) => cb(null, [
       {
         id: 'amzn1.alexa.endpoint.abc',
@@ -16,16 +15,14 @@ function createMockRemote() {
         features: [{ name: 'power', operations: [{ name: 'turnOn' }, { name: 'turnOff' }] }],
       },
     ])),
-    querySmarthomeDevices: vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => cb(null, {
-      deviceStates: [{
-        entity: { entityId: 'appliance-id' },
-        capabilityStates: [
-          JSON.stringify({ namespace: 'Alexa.PowerController', name: 'powerState', value: 'ON' }),
-        ],
-      }],
-      errors: [],
-    })),
-    executeSmarthomeDeviceAction: vi.fn((_ids: any, _params: any, _type: any, cb: Function) => cb(null, { controlResponses: [{}] })),
+    httpsGet: vi.fn((_path: string, cb: Function, flags: any) => {
+      const body = JSON.parse(flags.data);
+      if (body.query.startsWith('mutation')) return cb(null, { data: { setEndpointFeatures: { errors: [] } } });
+      cb(null, { data: { endpoints: { items: [{
+        id: 'endpoint-id',
+        features: [{ name: 'power', properties: [{ name: 'powerState', powerStateValue: 'ON' }] }],
+      }] } } });
+    }),
     stopProxyServer: vi.fn((cb?: Function) => cb && cb()),
   };
 }
@@ -108,24 +105,64 @@ describe('AlexaClient', () => {
       const mock = createMockRemote();
       const client = AlexaClient.__createForTest(mock as any);
 
-      const state = await client.queryDeviceState('appliance-id');
+      const state = await client.queryDeviceState('endpoint-id');
       expect(state).toHaveProperty('Alexa.PowerController');
       expect(state['Alexa.PowerController'].powerState).toBe('ON');
     });
   });
 
-  describe('executeAction', () => {
-    it('sends action to device', async () => {
+  describe('executeActions', () => {
+    it('sends every operation for an endpoint in one GraphQL mutation', async () => {
       const mock = createMockRemote();
       const client = AlexaClient.__createForTest(mock as any);
 
-      await client.executeAction('appliance-id', { action: 'turnOn' });
-      expect(mock.executeSmarthomeDeviceAction).toHaveBeenCalledWith(
-        ['appliance-id'],
-        { action: 'turnOn' },
-        'APPLIANCE',
-        expect.any(Function),
-      );
+      await client.executeActions('endpoint-id', [
+        { featureName: 'power', featureOperationName: 'turnOn' },
+        { featureName: 'brightness', featureOperationName: 'setBrightness', payload: { brightness: 40 } },
+      ]);
+      expect(mock.httpsGet).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(mock.httpsGet.mock.calls[0][2].data);
+      expect(body.query).toMatch(/setEndpointFeatures/);
+      expect(body.variables.input.featureControlRequests).toEqual([
+        { endpointId: 'endpoint-id', featureName: 'power', featureOperationName: 'turnOn' },
+        { endpointId: 'endpoint-id', featureName: 'brightness', featureOperationName: 'setBrightness', payload: { brightness: 40 } },
+      ]);
+    });
+
+    it('throws with the codes Amazon reports per endpoint', async () => {
+      const mock = createMockRemote();
+      mock.httpsGet = vi.fn((_p: string, cb: Function) =>
+        cb(null, { data: { setEndpointFeatures: { errors: [{ endpointId: 'e', code: 'ENDPOINT_UNREACHABLE' }] } } }));
+      const client = AlexaClient.__createForTest(mock as any);
+      await expect(client.executeActions('e', [{ featureName: 'power', featureOperationName: 'turnOn' }]))
+        .rejects.toThrow('Device error: ENDPOINT_UNREACHABLE');
+    });
+  });
+
+  describe('state via GraphQL', () => {
+    it('treats an endpoint whose values are all null (dead skill) as empty state', async () => {
+      const mock = createMockRemote();
+      mock.httpsGet = vi.fn((_p: string, cb: Function) => cb(null, { data: { endpoints: { items: [
+        { id: 'dead', features: [{ name: 'power', properties: [{ name: 'powerState', powerStateValue: null }] }] },
+        { id: 'live', features: [{ name: 'thermostat', properties: [
+          { name: 'targetSetpoint', value: { value: 72, scale: 'FAHRENHEIT' } },
+          { name: 'thermostatMode', thermostatModeValue: 'COOL' },
+        ] }] },
+      ] } } }));
+      const client = AlexaClient.__createForTest(mock as any);
+
+      const states = await client.queryAllStates();
+      expect(states.get('dead')).toEqual({});
+      expect(states.get('live')).toEqual({
+        'Alexa.ThermostatController': { targetSetpoint: { value: 72, scale: 'FAHRENHEIT' }, thermostatMode: 'COOL' },
+      });
+    });
+
+    it('rejects on GraphQL errors so the circuit breaker counts them', async () => {
+      const mock = createMockRemote();
+      mock.httpsGet = vi.fn((_p: string, cb: Function) => cb(null, { errors: [{ message: 'Unauthorized' }] }));
+      const client = AlexaClient.__createForTest(mock as any);
+      await expect(client.queryDeviceState('x')).rejects.toThrow('State query failed: Unauthorized');
     });
   });
 
@@ -133,7 +170,7 @@ describe('AlexaClient', () => {
     it('opens after 5 consecutive failures and rejects immediately', async () => {
       const mock = createMockRemote();
       // Simulate immediate errors (not hangs) to avoid needing fake timers
-      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+      mock.httpsGet = vi.fn((_path: any, cb: Function, _flags: any) => {
         cb(new Error('network error'), null);
       });
       const client = AlexaClient.__createForTest(mock as any);
@@ -146,19 +183,21 @@ describe('AlexaClient', () => {
 
       // 6th call should be rejected immediately without hitting the API
       await expect(client.queryDeviceState('app-id')).rejects.toThrow('Alexa circuit open');
-      // Mock should have been called exactly 5 times (not 6)
-      expect(mock.querySmarthomeDevices).toHaveBeenCalledTimes(5);
+      // Exactly 5 state queries (not 6). Opening the breaker also runs one auth check.
+      const stateQueries = mock.httpsGet.mock.calls
+        .filter((c: any[]) => JSON.parse(c[2].data).query.includes('features'));
+      expect(stateQueries).toHaveLength(5);
     });
 
     it('recovers when a query succeeds after probe interval', async () => {
       const mock = createMockRemote();
       let callCount = 0;
-      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+      mock.httpsGet = vi.fn((_path: any, cb: Function, _flags: any) => {
         callCount++;
         if (callCount <= 5) {
           cb(new Error('network error'), null);
         } else {
-          cb(null, { deviceStates: [{ capabilityStates: [] }], errors: [] });
+          cb(null, { data: { endpoints: { items: [] } } });
         }
       });
       const client = AlexaClient.__createForTest(mock as any);
@@ -181,12 +220,12 @@ describe('AlexaClient', () => {
     it('resets failure count on success', async () => {
       const mock = createMockRemote();
       let callCount = 0;
-      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+      mock.httpsGet = vi.fn((_path: any, cb: Function, _flags: any) => {
         callCount++;
         if (callCount <= 3) {
           cb(new Error('network error'), null);
         } else {
-          cb(null, { deviceStates: [{ capabilityStates: [] }], errors: [] });
+          cb(null, { data: { endpoints: { items: [] } } });
         }
       });
       const client = AlexaClient.__createForTest(mock as any);
@@ -205,7 +244,7 @@ describe('AlexaClient', () => {
 
     it('bulk path opens after 5 consecutive failures', async () => {
       const mock = createMockRemote();
-      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+      mock.httpsGet = vi.fn((_path: any, cb: Function, _flags: any) => {
         cb(new Error('bulk network error'), null);
       });
       const client = AlexaClient.__createForTest(mock as any);
@@ -224,7 +263,7 @@ describe('AlexaClient', () => {
       // After the fix: each path has its own counter and either hitting 5
       // opens the breaker. 4+4 means max-per-path = 4, breaker stays closed.
       const mock = createMockRemote();
-      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+      mock.httpsGet = vi.fn((_path: any, cb: Function, _flags: any) => {
         cb(new Error('network blip'), null);
       });
       const client = AlexaClient.__createForTest(mock as any);
@@ -240,7 +279,7 @@ describe('AlexaClient', () => {
       // The other end of the spec: if both paths individually hit threshold,
       // the breaker still opens.
       const mock = createMockRemote();
-      mock.querySmarthomeDevices = vi.fn((_ids: any, _type: any, _timeout: any, cb: Function) => {
+      mock.httpsGet = vi.fn((_path: any, cb: Function, _flags: any) => {
         cb(new Error('sustained outage'), null);
       });
       const client = AlexaClient.__createForTest(mock as any);
@@ -256,15 +295,15 @@ describe('AlexaClient', () => {
       // Independence: if single is failing but bulk works, single counter
       // continues to accumulate. The opposite for bulk.
       const mock = createMockRemote();
-      let count = 0;
-      mock.querySmarthomeDevices = vi.fn((ids: any, _type: any, _timeout: any, cb: Function) => {
-        count++;
-        if (ids.length === 1) {
+      // Both paths share one GraphQL request now; the test decides per call.
+      let failNext = false;
+      mock.httpsGet = vi.fn((_path: any, cb: Function, _flags: any) => {
+        if (failNext) {
           // Single path: always fail
           cb(new Error('single broken'), null);
         } else {
           // Bulk path: always succeed
-          cb(null, { deviceStates: [{ capabilityStates: [] }], errors: [] });
+          cb(null, { data: { endpoints: { items: [] } } });
         }
       });
       const client = AlexaClient.__createForTest(mock as any);
@@ -272,12 +311,15 @@ describe('AlexaClient', () => {
       // Interleave: single fails, bulk succeeds — repeat 4 times. Single
       // counter should be at 4, bulk at 0, breaker still closed.
       for (let i = 0; i < 4; i++) {
+        failNext = true;
         await client.queryDeviceState('app-id').catch(() => {});
+        failNext = false;
         await client.queryDeviceStates(['app-id', 'app-id-2']).catch(() => {});
       }
       expect(client.isHealthy()).toBe(true);
 
       // One more single fail — single hits 5 → breaker opens.
+      failNext = true;
       await client.queryDeviceState('app-id').catch(() => {});
       expect(client.isHealthy()).toBe(false);
     });
@@ -289,14 +331,12 @@ describe('AlexaClient', () => {
       // the very next single-path call would re-open the breaker. Reset
       // both on circuit close.
       const mock = createMockRemote();
-      let bulkCallCount = 0;
-      mock.querySmarthomeDevices = vi.fn((ids: any, _type: any, _timeout: any, cb: Function) => {
-        if (ids.length === 1) {
-          // Single path: always fail. Caller decides whether to call it.
+      let failNext = true;
+      mock.httpsGet = vi.fn((_path: any, cb: Function, _flags: any) => {
+        if (failNext) {
           cb(new Error('single fails'), null);
         } else {
-          bulkCallCount++;
-          cb(null, { deviceStates: [{ capabilityStates: [] }], errors: [] });
+          cb(null, { data: { endpoints: { items: [] } } });
         }
       });
       const client = AlexaClient.__createForTest(mock as any);
@@ -311,6 +351,7 @@ describe('AlexaClient', () => {
       (client as any).circuitOpenedAt = Date.now() - (5 * 60 * 1000 + 1);
 
       // Bulk probe succeeds — circuit closes. Both counters must reset.
+      failNext = false;
       await client.queryDeviceStates(['a', 'b']);
       expect(client.isHealthy()).toBe(true);
       expect((client as any).consecutiveFailuresSingle).toBe(0);
@@ -319,21 +360,27 @@ describe('AlexaClient', () => {
   });
 
   describe('isAuthenticated', () => {
-    it('returns true when authenticated', async () => {
+    // Checked against the GraphQL API the plugin actually uses. alexa-remote2's
+    // checkAuthentication reported "not authenticated" while the same cookie was
+    // serving GraphQL fine, so every breaker trip logged a false re-login alarm.
+    it('returns true when a GraphQL query succeeds', async () => {
       const mock = createMockRemote();
       const client = AlexaClient.__createForTest(mock as any);
-
-      const result = await client.isAuthenticated();
-      expect(result).toBe(true);
+      expect(await client.isAuthenticated()).toBe(true);
     });
 
-    it('returns false when not authenticated', async () => {
+    it('returns false only when Amazon rejects the session', async () => {
       const mock = createMockRemote();
-      mock.checkAuthentication = vi.fn((cb: Function) => cb(null, { authenticated: false }));
+      mock.httpsGet = vi.fn((_p: string, cb: Function) => cb(new Error('401 Unauthorized'), null));
       const client = AlexaClient.__createForTest(mock as any);
+      expect(await client.isAuthenticated()).toBe(false);
+    });
 
-      const result = await client.isAuthenticated();
-      expect(result).toBe(false);
+    it('does not claim invalid auth on a timeout or network error', async () => {
+      const mock = createMockRemote();
+      mock.httpsGet = vi.fn((_p: string, cb: Function) => cb(new Error('timeout of 10000ms exceeded'), null));
+      const client = AlexaClient.__createForTest(mock as any);
+      expect(await client.isAuthenticated()).toBe(true);
     });
   });
 });

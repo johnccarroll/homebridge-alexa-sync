@@ -6,24 +6,12 @@ const require = createRequire(import.meta.url);
 const AlexaRemote = require('alexa-remote2') as new () => AlexaRemoteInstance;
 
 interface AlexaRemoteInstance {
+  httpsGet(path: string, callback: (err: Error | null, res: unknown) => void, flags?: Record<string, unknown>): void;
   init(options: Record<string, unknown>, callback: (err: Error | null) => void): void;
   on(event: string, callback: (...args: any[]) => void): void;
   removeAllListeners(event?: string): void;
   cookieData: unknown;
-  checkAuthentication(callback: (err: Error | null, result: any) => void): void;
   getSmarthomeDevicesV2(callback: (err: Error | null, result: any) => void): void;
-  querySmarthomeDevices(
-    ids: string[],
-    entityType: string,
-    timeout: number,
-    callback: (err: Error | null, result: any) => void,
-  ): void;
-  executeSmarthomeDeviceAction(
-    ids: string[],
-    params: Record<string, unknown>,
-    entityType: string,
-    callback: (err: Error | null, result: any) => void,
-  ): void;
   stopProxyServer(callback?: (err?: Error | null) => void): void;
 }
 
@@ -53,6 +41,72 @@ const ALEXA_SERVICE_HOSTS: Record<string, string> = {
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_PROBE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+const GRAPHQL_TIMEOUT_MS = 10_000;
+
+const STATE_QUERY = `query { endpoints { items { id features { name properties { name
+  ... on Power { powerStateValue }
+  ... on Brightness { brightnessStateValue }
+  ... on Color { colorStateValue { hue saturation brightness } }
+  ... on ColorTemperature { colorTemperatureInKelvinStateValue }
+  ... on TemperatureSensor { value { value scale } }
+  ... on Setpoint { value { value scale } }
+  ... on ThermostatMode { thermostatModeValue }
+  ... on Lock { lockState }
+} } } } }`;
+
+const SET_FEATURES_MUTATION = `mutation($input: SetEndpointFeaturesInput!) {
+  setEndpointFeatures(setEndpointFeaturesInput: $input) { errors { endpointId code } }
+}`;
+
+export interface FeatureRequest {
+  featureName: string;
+  featureOperationName: string;
+  payload?: Record<string, unknown>;
+}
+
+interface GqlProperty {
+  name: string;
+  powerStateValue?: unknown;
+  brightnessStateValue?: unknown;
+  colorStateValue?: unknown;
+  colorTemperatureInKelvinStateValue?: unknown;
+  value?: unknown;
+  thermostatModeValue?: unknown;
+  lockState?: unknown;
+}
+
+interface GqlEndpoint {
+  id: string;
+  features?: Array<{ name: string; properties?: GqlProperty[] | null }> | null;
+}
+
+// GraphQL property name -> the legacy capability namespace the mapper reads.
+const PROPERTY_NAMESPACES: Record<string, string> = {
+  powerState: 'Alexa.PowerController',
+  brightness: 'Alexa.BrightnessController',
+  color: 'Alexa.ColorController',
+  colorTemperatureInKelvin: 'Alexa.ColorTemperatureController',
+  temperature: 'Alexa.TemperatureSensor',
+  targetSetpoint: 'Alexa.ThermostatController',
+  thermostatMode: 'Alexa.ThermostatController',
+  lockState: 'Alexa.LockController',
+};
+
+/** An endpoint whose skill no longer answers comes back with every value null: an empty state. */
+export function gqlEndpointToState(endpoint: GqlEndpoint): AlexaDeviceState {
+  const state: AlexaDeviceState = {};
+  for (const feature of endpoint.features ?? []) {
+    for (const p of feature.properties ?? []) {
+      const ns = PROPERTY_NAMESPACES[p.name];
+      const value = p.powerStateValue ?? p.brightnessStateValue ?? p.colorStateValue
+        ?? p.colorTemperatureInKelvinStateValue ?? p.value ?? p.thermostatModeValue ?? p.lockState;
+      if (!ns || value === undefined || value === null) continue;
+      (state[ns] ??= {})[p.name] = value;
+    }
+  }
+  return state;
+}
 
 export class AlexaClient {
   private remote: AlexaRemoteInstance;
@@ -202,16 +256,17 @@ export class AlexaClient {
     });
   }
 
+  /**
+   * Asks the GraphQL API this plugin actually uses. Only an explicit 401/403
+   * counts as a dead session; timeouts and network errors are not auth failures.
+   */
   async isAuthenticated(): Promise<boolean> {
-    return new Promise((resolve) => {
-      this.remote.checkAuthentication((err: Error | null, result: any) => {
-        if (err || !result?.authenticated) {
-          resolve(false);
-        } else {
-          resolve(true);
-        }
-      });
-    });
+    try {
+      await this.graphql('query { endpoints { items { id } } }');
+      return true;
+    } catch (err) {
+      return !/\b(401|403)\b|unauthori[sz]ed|forbidden/i.test((err as Error).message);
+    }
   }
 
   async discoverDevices(): Promise<AlexaDevice[]> {
@@ -272,114 +327,58 @@ export class AlexaClient {
     }
   }
 
-  private queryDeviceStateInternal(applianceId: string): Promise<AlexaDeviceState> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error('Alexa state query timed out'));
-      }, 30_000);
-
-      this.remote.querySmarthomeDevices(
-        [applianceId],
-        'APPLIANCE',
-        30000,
-        (err: Error | null, result: any) => {
-          clearTimeout(timer);
-          if (err) return reject(new Error(`State query failed: ${err.message}`));
-
-          const state: AlexaDeviceState = {};
-          const deviceState = result?.deviceStates?.[0];
-          if (!deviceState?.capabilityStates) return resolve(state);
-
-          for (const raw of deviceState.capabilityStates) {
-            try {
-              const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-              const ns = parsed.namespace as string | undefined;
-              if (ns) {
-                if (!state[ns]) state[ns] = {};
-                state[ns][parsed.name as string] = parsed.value;
-              }
-            } catch {
-              // Skip malformed capability state
-            }
-          }
-          resolve(state);
-        },
-      );
-    });
+  // Single-device reads go through the same bulk GraphQL query: it returns
+  // every endpoint's last-known state in one ~0.4 s round trip, so there is
+  // nothing to gain from a per-device request.
+  private async queryDeviceStateInternal(endpointId: string): Promise<AlexaDeviceState> {
+    return (await this.queryDeviceStatesInternal([endpointId])).get(endpointId) ?? {};
   }
 
-  private queryDeviceStatesInternal(applianceIds: string[]): Promise<Map<string, AlexaDeviceState>> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error('Alexa state query timed out'));
-      }, 30_000);
-
-      this.remote.querySmarthomeDevices(
-        applianceIds,
-        'APPLIANCE',
-        30000,
-        (err: Error | null, result: any) => {
-          clearTimeout(timer);
-          if (err) return reject(new Error(`State query failed: ${err.message}`));
-
-          const states = new Map<string, AlexaDeviceState>();
-          for (const deviceState of result?.deviceStates ?? []) {
-            const entityId = deviceState?.entity?.entityId as string | undefined;
-            if (!entityId || !deviceState?.capabilityStates) continue;
-
-            const state: AlexaDeviceState = {};
-            for (const raw of deviceState.capabilityStates) {
-              try {
-                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                const ns = parsed.namespace as string | undefined;
-                if (ns) {
-                  if (!state[ns]) state[ns] = {};
-                  state[ns][parsed.name as string] = parsed.value;
-                }
-              } catch {
-                // Skip malformed capability state
-              }
-            }
-            states.set(entityId, state);
-          }
-
-          // Alexa returns a parallel `errors` array for endpoints that failed
-          // to report — most commonly ENDPOINT_UNREACHABLE when a device is
-          // exposed via a custom skill whose backend doesn't answer state
-          // queries. Those are expected (not transient network failures) and
-          // we already covered the device via discover-time dedup if a working
-          // path existed. Logging them at debug avoids flooding warn while
-          // still leaving a breadcrumb.
-          if (Array.isArray(result?.errors) && result.errors.length > 0 && this.config.logger) {
-            const counts: Record<string, number> = {};
-            for (const e of result.errors) {
-              const code = (e?.code as string) ?? 'UNKNOWN';
-              counts[code] = (counts[code] ?? 0) + 1;
-            }
-            const summary = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ');
-            this.config.logger(`partial state query: ${summary} of ${applianceIds.length}`);
-          }
-
-          resolve(states);
-        },
-      );
-    });
+  // Amazon's GraphQL endpoint (what the Alexa app uses) serves state from its
+  // own cache. The legacy /api/phoenix/state call made Amazon ask every skill's
+  // cloud live, which routinely ran into its 12-30 s timeout.
+  private async queryDeviceStatesInternal(endpointIds: string[]): Promise<Map<string, AlexaDeviceState>> {
+    const res = await this.graphql<{ endpoints?: { items?: GqlEndpoint[] } }>(STATE_QUERY);
+    const wanted = new Set(endpointIds);
+    const states = new Map<string, AlexaDeviceState>();
+    for (const endpoint of res.endpoints?.items ?? []) {
+      if (wanted.has(endpoint.id)) states.set(endpoint.id, gqlEndpointToState(endpoint));
+    }
+    return states;
   }
 
-  async executeAction(applianceId: string, params: Record<string, unknown>): Promise<void> {
+  /** Every endpoint's state, keyed by endpoint id. Used to rank duplicate endpoints. */
+  async queryAllStates(): Promise<Map<string, AlexaDeviceState>> {
+    const res = await this.graphql<{ endpoints?: { items?: GqlEndpoint[] } }>(STATE_QUERY);
+    return new Map((res.endpoints?.items ?? []).map(e => [e.id, gqlEndpointToState(e)]));
+  }
+
+  /** Apply feature operations to one endpoint in a single GraphQL mutation (~0.3 s). */
+  async executeActions(endpointId: string, requests: FeatureRequest[]): Promise<void> {
+    if (requests.length === 0) return;
+    const res = await this.graphql<{ setEndpointFeatures?: { errors?: Array<{ code?: string }> } }>(
+      SET_FEATURES_MUTATION,
+      { input: { featureControlRequests: requests.map(r => ({ endpointId, ...r })) } },
+    );
+    const errors = res.setEndpointFeatures?.errors ?? [];
+    if (errors.length > 0) {
+      throw new Error(`Device error: ${errors.map(e => e.code ?? 'UNKNOWN').join(', ')}`);
+    }
+  }
+
+  private graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.remote.executeSmarthomeDeviceAction(
-        [applianceId],
-        params,
-        'APPLIANCE',
-        (err: Error | null, result: any) => {
-          if (err) return reject(new Error(`Action failed: ${err.message}`));
-          if (result?.errors?.length > 0) {
-            const errMsg = (result.errors as any[]).map((e: any) => e.code).join(', ');
-            return reject(new Error(`Device error: ${errMsg}`));
+      this.remote.httpsGet(
+        '/nexus/v1/graphql',
+        (err: Error | null, res: any) => {
+          if (err) return reject(new Error(`State query failed: ${err.message}`));
+          if (res?.errors?.length) {
+            return reject(new Error(`State query failed: ${res.errors.map((e: any) => e.message).join('; ')}`));
           }
-          resolve();
+          if (!res?.data) return reject(new Error('State query failed: empty GraphQL response'));
+          resolve(res.data as T);
         },
+        { method: 'POST', data: JSON.stringify({ query, variables }), timeout: GRAPHQL_TIMEOUT_MS },
       );
     });
   }

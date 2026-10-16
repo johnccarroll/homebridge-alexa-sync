@@ -32,7 +32,9 @@ function mockClient(devices: AlexaDevice[]): AlexaClient {
       'Alexa.PowerController': { powerState: 'ON' },
       'Alexa.BrightnessController': { brightness: 75 },
     }),
-    executeAction: vi.fn().mockResolvedValue(undefined),
+    queryDeviceStates: vi.fn().mockResolvedValue(new Map()),
+    queryAllStates: vi.fn().mockResolvedValue(new Map()),
+    executeActions: vi.fn().mockResolvedValue(undefined),
     isAuthenticated: vi.fn().mockResolvedValue(true),
     dispose: vi.fn(),
   } as unknown as AlexaClient;
@@ -61,13 +63,26 @@ describe('AlexaProvider', () => {
       expect(devices).toHaveLength(0);
     });
 
-    it('stores appliance ID mapping for control', async () => {
+    it('addresses devices by endpoint id', async () => {
       const client = mockClient([LIGHT_DEVICE]);
       const provider = new AlexaProvider(client, {});
       await provider.discover();
 
       await provider.getState('amzn1.alexa.endpoint.abc123');
-      expect(client.queryDeviceState).toHaveBeenCalledWith('appliance-abc123');
+      expect(client.queryDeviceState).toHaveBeenCalledWith('amzn1.alexa.endpoint.abc123');
+    });
+
+    it('picks the duplicate that reports state over a dead skill endpoint', async () => {
+      // Real account: "Bedroom 1" appears four times, three from a retired
+      // development skill whose endpoints return all-null state.
+      const dead = { ...LIGHT_DEVICE, id: 'dead', friendlyName: 'Bedroom 1', legacyAppliance: { applianceId: 'SKILL_dead' } };
+      const live = { ...LIGHT_DEVICE, id: 'live', friendlyName: 'Bedroom 1', legacyAppliance: { applianceId: 'SKILL_live' } };
+      const client = mockClient([dead, live, { ...dead, id: 'dead2' }]);
+      (client.queryAllStates as any).mockResolvedValue(new Map([
+        ['dead', {}], ['dead2', {}], ['live', { 'Alexa.PowerController': { powerState: 'ON' } }],
+      ]));
+      const devices = await new AlexaProvider(client, {}).discover();
+      expect(devices.map(d => d.id)).toEqual(['alexa:live']);
     });
   });
 
@@ -90,9 +105,9 @@ describe('AlexaProvider', () => {
       await provider.discover();
 
       await provider.setState('amzn1.alexa.endpoint.abc123', { on: false });
-      expect(client.executeAction).toHaveBeenCalledWith(
-        'appliance-abc123',
-        { action: 'turnOff' },
+      expect(client.executeActions).toHaveBeenCalledWith(
+        'amzn1.alexa.endpoint.abc123',
+        [{ featureName: 'power', featureOperationName: 'turnOff' }],
       );
     });
 
@@ -102,7 +117,8 @@ describe('AlexaProvider', () => {
       await provider.discover();
 
       await provider.setState('amzn1.alexa.endpoint.abc123', { on: true, brightness: 50 });
-      expect(client.executeAction).toHaveBeenCalledTimes(2);
+      expect(client.executeActions).toHaveBeenCalledTimes(1);
+      expect((client.executeActions as any).mock.calls[0][1]).toHaveLength(2);
     });
 
     it('hue-only change preserves cached brightness + saturation in setColor', async () => {
@@ -123,11 +139,11 @@ describe('AlexaProvider', () => {
         target,
       );
 
-      const colorCall = (client.executeAction as any).mock.calls.find(
-        ([, action]: [string, Record<string, unknown>]) => action.action === 'setColor',
+      const colorCall = (client.executeActions as any).mock.calls[0][1].find(
+        (req: { featureOperationName: string }) => req.featureOperationName === 'setColor',
       );
       expect(colorCall).toBeDefined();
-      const color = colorCall[1].color as { hue: number; saturation: number; brightness: number };
+      const color = colorCall.payload.color as { hue: number; saturation: number; brightness: number };
       expect(color.hue).toBe(300);
       expect(color.saturation).toBeCloseTo(1.0, 5);     // 100% from target
       expect(color.brightness).toBeCloseTo(0.4, 5);     // 40% from target, NOT 1.0
@@ -145,10 +161,10 @@ describe('AlexaProvider', () => {
         target,
       );
 
-      const colorCall = (client.executeAction as any).mock.calls.find(
-        ([, action]: [string, Record<string, unknown>]) => action.action === 'setColor',
+      const colorCall = (client.executeActions as any).mock.calls[0][1].find(
+        (req: { featureOperationName: string }) => req.featureOperationName === 'setColor',
       );
-      const color = colorCall[1].color;
+      const color = colorCall.payload.color;
       expect(color.hue).toBe(180);
       expect(color.saturation).toBeCloseTo(0.5, 5);
       expect(color.brightness).toBeCloseTo(0.6, 5);
@@ -162,10 +178,10 @@ describe('AlexaProvider', () => {
       await provider.discover();
 
       await provider.setState('amzn1.alexa.endpoint.abc123', { hue: 240 });
-      const colorCall = (client.executeAction as any).mock.calls.find(
-        ([, action]: [string, Record<string, unknown>]) => action.action === 'setColor',
+      const colorCall = (client.executeActions as any).mock.calls[0][1].find(
+        (req: { featureOperationName: string }) => req.featureOperationName === 'setColor',
       );
-      expect(colorCall[1].color.hue).toBe(240);
+      expect(colorCall.payload.color.hue).toBe(240);
     });
   });
 
@@ -202,8 +218,6 @@ describe('AlexaProvider', () => {
     it('does not accumulate stale entries in the bulk-state path', async () => {
       const client = mockClient([LIGHT_DEVICE]);
       const provider = new AlexaProvider(client, {});
-      (client as any).queryDeviceStates = vi.fn().mockResolvedValue(new Map());
-
       await provider.discover();
       (client.discoverDevices as any).mockResolvedValue([]);
       await provider.discover();
