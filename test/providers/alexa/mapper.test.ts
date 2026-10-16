@@ -59,6 +59,20 @@ describe('alexaDeviceToBridgeDevice', () => {
     expect(alexaDeviceToBridgeDevice(alexaDevice)).toBeNull();
   });
 
+  it('maps power-only COMPUTER and TV devices to switches by default', () => {
+    // A smart plug the user typed as "Computer" in Alexa (e.g. one powering a PC).
+    for (const category of ['COMPUTER', 'TV']) {
+      const device = alexaDeviceToBridgeDevice({
+        id: `amzn1.alexa.endpoint.${category}`,
+        friendlyName: 'Milkcrate',
+        displayCategories: { primary: { value: category } },
+        features: [{ name: 'power', operations: [{ name: 'turnOn' }, { name: 'turnOff' }] }],
+      });
+      expect(device?.type).toBe('switch');
+      expect(device?.capabilities).toEqual([{ type: 'on-off' }]);
+    }
+  });
+
   it('filters by allowed device types', () => {
     const alexaDevice = {
       id: 'amzn1.alexa.endpoint.fan1',
@@ -92,6 +106,20 @@ describe('alexaStateToDeviceState', () => {
   it('handles OFF state', () => {
     const alexaState = { 'Alexa.PowerController': { powerState: 'OFF' } };
     expect(alexaStateToDeviceState(alexaState).on).toBe(false);
+  });
+
+  it('records the temperature unit Alexa reports, still storing Celsius', () => {
+    const state = alexaStateToDeviceState({
+      'Alexa.TemperatureSensor': { temperature: { value: 68, scale: 'FAHRENHEIT' } },
+      'Alexa.ThermostatController': { targetSetpoint: { value: 70, scale: 'FAHRENHEIT' } },
+    });
+    expect(state.temperature).toBe(20);
+    expect(state.targetTemperature).toBe(21.1);
+    expect(state.temperatureUnit).toBe('fahrenheit');
+
+    expect(alexaStateToDeviceState({
+      'Alexa.TemperatureSensor': { temperature: { value: 20, scale: 'CELSIUS' } },
+    }).temperatureUnit).toBe('celsius');
   });
 
   it('handles empty state', () => {

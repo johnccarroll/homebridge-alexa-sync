@@ -209,6 +209,14 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
 
         if (!accessory) {
           accessory = new this.api.platformAccessory(device.name, uuid);
+        } else if (accessory.displayName !== device.name) {
+          // Alexa is the source of truth for names; a cached accessory otherwise keeps
+          // the name it was first created with forever.
+          this.log.info(`Renaming accessory: ${accessory.displayName} -> ${device.name}`);
+          accessory.updateDisplayName(device.name);
+          accessory.getService(this.Service.AccessoryInformation)
+            ?.setCharacteristic(this.Characteristic.Name, device.name);
+          this.api.updatePlatformAccessories([accessory]);
         }
 
         configureAccessory(

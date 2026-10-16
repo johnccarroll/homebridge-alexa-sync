@@ -26,6 +26,9 @@ const CATEGORY_MAP: Record<string, DeviceType> = {
   SMARTLOCK: 'lock',
   FAN: 'fan',
   THERMOSTAT: 'thermostat',
+  // Power-only categories: a smart plug the user typed as "Computer" or "TV" in Alexa.
+  COMPUTER: 'switch',
+  TV: 'switch',
 };
 
 function extractTextField(field: unknown): string | undefined {
@@ -37,7 +40,9 @@ function extractTextField(field: unknown): string | undefined {
   return undefined;
 }
 
-const DEFAULT_DEVICE_TYPES = ['LIGHT', 'SWITCH', 'SMARTPLUG', 'SMARTLOCK', 'FAN', 'THERMOSTAT'];
+const DEFAULT_DEVICE_TYPES = [
+  'LIGHT', 'SWITCH', 'SMARTPLUG', 'SMARTLOCK', 'FAN', 'THERMOSTAT', 'COMPUTER', 'TV',
+];
 
 export function alexaDeviceToBridgeDevice(
   device: AlexaDevice,
@@ -120,6 +125,7 @@ export function alexaStateToDeviceState(state: AlexaDeviceState): DeviceState {
   if (temp?.temperature) {
     const t = temp.temperature as { value: number; scale: string };
     result.temperature = toC(t.value, t.scale);
+    result.temperatureUnit = unitOf(t.scale);
   }
 
   const lock = state['Alexa.LockController'];
@@ -131,6 +137,7 @@ export function alexaStateToDeviceState(state: AlexaDeviceState): DeviceState {
   if (thermostat?.targetSetpoint) {
     const t = thermostat.targetSetpoint as { value: number; scale: string };
     result.targetTemperature = toC(t.value, t.scale);
+    result.temperatureUnit ??= unitOf(t.scale);
   }
   if (thermostat?.thermostatMode) {
     const mode = (thermostat.thermostatMode as string).toLowerCase();
@@ -141,6 +148,10 @@ export function alexaStateToDeviceState(state: AlexaDeviceState): DeviceState {
   }
 
   return result;
+}
+
+function unitOf(scale: string): 'celsius' | 'fahrenheit' {
+  return scale?.toUpperCase() === 'FAHRENHEIT' ? 'fahrenheit' : 'celsius';
 }
 
 function toC(value: number, scale: string): number {

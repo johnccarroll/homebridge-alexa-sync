@@ -301,12 +301,14 @@ function configureThermostatAccessory(
       await setState(device.id, { thermostatMode: modes[value as number] ?? 'off' });
     });
 
-  // Temperature Display Units (read-only, based on device config)
+  // Temperature Display Units: follow the scale Alexa reports for the device
+  // (a US thermostat reports Fahrenheit); values themselves stay Celsius.
   service.getCharacteristic(hap.Characteristic.TemperatureDisplayUnits)
     .onGet(async (): Promise<CharacteristicValue> => {
-      // 0 = Celsius, 1 = Fahrenheit
+      const state = await getState(device.id);
       const tempCap = device.capabilities.find(c => c.type === 'temperature');
-      return tempCap && 'unit' in tempCap && tempCap.unit === 'fahrenheit' ? 1 : 0;
+      const unit = state.temperatureUnit ?? (tempCap && 'unit' in tempCap ? tempCap.unit : 'celsius');
+      return unit === 'fahrenheit' ? 1 : 0; // 0 = Celsius, 1 = Fahrenheit
     });
 }
 
@@ -378,6 +380,10 @@ export function updateAccessoryState(
     }
     if (state.targetTemperature !== undefined) {
       service.updateCharacteristic(hap.Characteristic.TargetTemperature, state.targetTemperature);
+    }
+    if (state.temperatureUnit !== undefined) {
+      service.updateCharacteristic(hap.Characteristic.TemperatureDisplayUnits,
+        state.temperatureUnit === 'fahrenheit' ? 1 : 0);
     }
     if (state.thermostatMode !== undefined) {
       const targetMap: Record<string, number> = { off: 0, heat: 1, cool: 2, auto: 3 };

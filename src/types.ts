@@ -30,5 +30,7 @@ export interface DeviceState {
   temperature?: number;
   targetTemperature?: number;
   thermostatMode?: string;
+  /** Unit the device reports in. Values above are always Celsius (HomeKit's unit); this only drives display. */
+  temperatureUnit?: 'celsius' | 'fahrenheit';
   locked?: boolean;
 }

@@ -48,6 +48,11 @@ const Characteristic = {
   RotationSpeed: 'RotationSpeed',
   LockCurrentState: 'LockCurrentState',
   LockTargetState: 'LockTargetState',
+  CurrentTemperature: 'CurrentTemperature',
+  TargetTemperature: 'TargetTemperature',
+  CurrentHeatingCoolingState: 'CurrentHeatingCoolingState',
+  TargetHeatingCoolingState: 'TargetHeatingCoolingState',
+  TemperatureDisplayUnits: 'TemperatureDisplayUnits',
 };
 
 const Service = {
@@ -57,6 +62,7 @@ const Service = {
   Outlet: 'Outlet',
   Fan: 'Fan',
   LockMechanism: 'LockMechanism',
+  Thermostat: 'Thermostat',
 };
 
 const LIGHT: BridgeDevice = {
@@ -271,5 +277,30 @@ describe('updateAccessoryState — non-light, non-thermostat types', () => {
     updateAccessoryState(accessory as any, lock, { locked: true }, { Service, Characteristic } as any);
     expect(svc.updateCharacteristic).toHaveBeenCalledWith('LockCurrentState', 1);
     expect(svc.updateCharacteristic).toHaveBeenCalledWith('LockTargetState', 1);
+  });
+});
+
+describe('thermostat display units', () => {
+  const THERMO: BridgeDevice = {
+    id: 'alexa:t', name: 'Upstairs', type: 'thermostat', provider: 'alexa',
+    capabilities: [{ type: 'temperature', unit: 'celsius' }, { type: 'target-temperature', range: [10, 35] }],
+  };
+
+  it('reports Fahrenheit when Alexa reports the thermostat in Fahrenheit', async () => {
+    const accessory = createMockAccessory();
+    configureAccessory(accessory as any, THERMO, { Service, Characteristic } as any,
+      vi.fn().mockResolvedValue({}), vi.fn(), () => ({ temperatureUnit: 'fahrenheit' }));
+    const svc = accessory.addService.mock.results[0].value;
+    const onGet = svc.getCharacteristic('TemperatureDisplayUnits').onGet.mock.calls[0][0];
+    expect(await onGet()).toBe(1);
+  });
+
+  it('pushes the unit to HomeKit when state arrives', () => {
+    const accessory = createMockAccessory();
+    configureAccessory(accessory as any, THERMO, { Service, Characteristic } as any,
+      vi.fn().mockResolvedValue({}), vi.fn());
+    const svc = accessory.addService.mock.results[0].value;
+    updateAccessoryState(accessory as any, THERMO, { temperatureUnit: 'fahrenheit' }, { Service, Characteristic } as any);
+    expect(svc.updateCharacteristic).toHaveBeenCalledWith('TemperatureDisplayUnits', 1);
   });
 });
