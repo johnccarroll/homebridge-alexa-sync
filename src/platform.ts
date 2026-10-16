@@ -256,9 +256,9 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
   }
 
   /**
-   * Re-run discovery on a long interval so newly-added Alexa devices show up
-   * in HomeKit without requiring a Homebridge restart. Runs every 6h by
-   * default; on success, prunes lastPollTime entries for devices that
+   * Re-run discovery periodically so newly-added or renamed Alexa devices show
+   * up in HomeKit without a Homebridge restart. Every 10 min: discovery plus
+   * the GraphQL state read is ~1 s of requests. On success, prunes lastPollTime entries for devices that
    * disappeared so the map can't grow unbounded.
    *
    * If the re-run discovery returns 0 devices but we have cached accessories,
@@ -266,7 +266,7 @@ export class AlexaSyncPlatform implements DynamicPlatformPlugin {
    * Amazon hiccup during the periodic refresh won't nuke iOS Home memberships.
    */
   private startPeriodicRediscovery(): void {
-    const REDISCOVERY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    const REDISCOVERY_INTERVAL_MS = 10 * 60 * 1000;
     this.rediscoveryTimer = setInterval(() => {
       this.discoverAndRegister()
         .then(() => this.pruneStaleLastPollTime())
