@@ -34,6 +34,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -51,7 +52,7 @@ jobs:
         id: version-check
         run: |
           local_v=$(node -p "require('./package.json').version")
-          published=$(npm view homebridge-alexa-sync@$local_v version 2>/dev/null || echo "")
+          published=$(npm view "homebridge-alexa-sync@$local_v" version 2>/dev/null || echo "")
           if [ "$published" = "$local_v" ]; then
             echo "Version $local_v already on npm. Skipping publish."
             echo "skip=true" >> "$GITHUB_OUTPUT"
